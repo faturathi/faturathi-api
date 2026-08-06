@@ -9,6 +9,7 @@ class SystemConfigSerializer(serializers.ModelSerializer):
         fields = [
             "id", "country", "timezone", "base_currency", "fx_rate_usd", "language_mode",
             "mfa_enforced", "security_alerts", "admin_alerts", "allow_user_logins",
+            "enable_auto_backups",
             "backup_retention_years", "maintenance_window", "webhook_url",
             "admin_alert_contact", "master_api_key",
         ]

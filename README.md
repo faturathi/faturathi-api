@@ -45,7 +45,9 @@ RLS or schema-per-tenant isolation can be added later as defense in depth, but e
 separate connection/session and migration design.
 
 Clients select one legal entity with the `X-Company-ID` header (company UUID or short code). The
-special value `group` permits a user to work across companies in their own business group.
+special value `group` permits a user to work across companies in their own business group. A
+platform administrator must additionally send `X-Business-Group-ID: <group UUID>`; this scopes the
+company list and makes `X-Company-ID: group` mean the selected tenant, never the whole platform.
 
 ## Local setup
 

@@ -1,0 +1,583 @@
+# Faturathi Backend — AWS EC2 Deployment Guide
+
+This guide deploys the Django backend located in the repository's `backend/`
+directory to Ubuntu on Amazon EC2 using:
+
+- Django 6 and Django REST Framework
+- Gunicorn application server
+- Nginx reverse proxy
+- PostgreSQL (Amazon RDS recommended, or local PostgreSQL for UAT)
+- systemd process management
+- Optional Amazon S3 and CloudFront for static/media files
+- Let's Encrypt TLS certificate
+
+Project runtime entry points:
+
+    Django directory: backend/
+    Management script: backend/manage.py
+    WSGI application: core.wsgi:application
+    Health check: /api/health
+    Swagger: /api/docs
+    ReDoc: /api/redoc
+
+
+===============================================================================
+1. RECOMMENDED AWS ARCHITECTURE
+===============================================================================
+
+Production:
+
+    Internet
+       |
+    Route 53 / DNS
+       |
+    HTTPS :443
+       |
+    EC2 (Nginx -> Gunicorn -> Django)
+       |                         |
+       |                         +-> S3 / CloudFront (static and media)
+       |
+       +-> Amazon RDS PostgreSQL (private connection on port 5432)
+
+UAT / lower cost:
+
+    Internet -> EC2 (Nginx -> Gunicorn -> Django -> local PostgreSQL)
+
+RDS is recommended for production because backups, storage, patching and
+failover are managed separately from the replaceable application instance.
+
+
+===============================================================================
+2. VALUES USED IN THIS GUIDE
+===============================================================================
+
+Replace these placeholders before running commands:
+
+    <REPOSITORY_URL>       Git clone URL containing backend/
+    <API_DOMAIN>           Example: api-uat.faturathi.com
+    <FRONTEND_URL>         Example: https://uat.faturathi.com
+    <RDS_ENDPOINT>         Example: faturathi.xxxxxx.me-central-1.rds.amazonaws.com
+    <RDS_MASTER_USER>      RDS administrator username
+    <AWS_REGION>           Example: me-central-1
+    <S3_BUCKET>            Example: faturathi-uat-assets
+
+Linux deployment paths used below:
+
+    Application root: /srv/faturathi
+    Backend root:     /srv/faturathi/backend
+    Virtualenv:       /srv/faturathi/venv
+    Environment file: /etc/faturathi/backend.env
+    Service:          faturathi-backend.service
+
+
+===============================================================================
+3. CREATE THE EC2 INSTANCE
+===============================================================================
+
+Suggested starting configuration:
+
+    OS: Ubuntu Server 24.04 LTS
+    UAT: t3.small or t3.medium
+    Production: t3.medium or larger after load testing
+    Storage: encrypted gp3, at least 20 GB
+    IAM role: S3 access only if AWS_STORAGE_BUCKET_NAME is configured
+
+EC2 security group inbound rules:
+
+    TCP 22   SSH     Your office/VPN IP only
+    TCP 80   HTTP    0.0.0.0/0 and ::/0
+    TCP 443  HTTPS   0.0.0.0/0 and ::/0
+
+Do not expose Gunicorn port 8000 or PostgreSQL port 5432 publicly.
+
+Connect to the instance:
+
+    ssh -i <KEY_FILE.pem> ubuntu@<EC2_PUBLIC_IP>
+
+
+===============================================================================
+4. INSTALL OPERATING-SYSTEM PACKAGES
+===============================================================================
+
+    sudo apt update
+    sudo apt upgrade -y
+    sudo apt install -y python3 python3-venv python3-pip git nginx curl \
+        postgresql-client build-essential
+
+Confirm Python 3.12 or newer is installed (required by Django 6):
+
+    python3 --version
+
+
+===============================================================================
+5. DOWNLOAD AND INSTALL THE APPLICATION
+===============================================================================
+
+    sudo mkdir -p /srv/faturathi
+    sudo chown ubuntu:ubuntu /srv/faturathi
+    git clone <REPOSITORY_URL> /srv/faturathi/source
+
+If the cloned repository contains both frontend/ and backend/:
+
+    ln -s /srv/faturathi/source/backend /srv/faturathi/backend
+
+If `backend` itself is the repository root, use:
+
+    ln -s /srv/faturathi/source /srv/faturathi/backend
+
+Create the Python environment and install dependencies:
+
+    python3 -m venv /srv/faturathi/venv
+    /srv/faturathi/venv/bin/pip install --upgrade pip wheel
+    /srv/faturathi/venv/bin/pip install -r /srv/faturathi/backend/requirements.txt
+
+
+===============================================================================
+6. DATABASE OPTION A — AMAZON RDS POSTGRESQL (RECOMMENDED)
+===============================================================================
+
+Create an RDS PostgreSQL instance in the same VPC as EC2:
+
+    Engine: PostgreSQL
+    Public access: No
+    Storage encryption: Enabled
+    Automated backups: Enabled
+    Multi-AZ: Recommended for production
+
+RDS security group inbound rule:
+
+    PostgreSQL TCP 5432
+    Source: the EC2 instance security group (not an IP range)
+
+Connect using the RDS master account:
+
+    psql -h <RDS_ENDPOINT> -U <RDS_MASTER_USER> -d postgres
+
+Create the application database and least-privilege owner:
+
+    CREATE USER fathurathi_app WITH PASSWORD '<STRONG_DATABASE_PASSWORD>';
+    CREATE DATABASE fathurathi OWNER fathurathi_app;
+    \c fathurathi
+    GRANT ALL ON SCHEMA public TO fathurathi_app;
+    ALTER SCHEMA public OWNER TO fathurathi_app;
+    \q
+
+Use `<RDS_ENDPOINT>` as DB_HOST in section 8.
+
+
+===============================================================================
+7. DATABASE OPTION B — POSTGRESQL ON EC2 (UAT ONLY)
+===============================================================================
+
+Install PostgreSQL locally:
+
+    sudo apt install -y postgresql postgresql-contrib
+    sudo systemctl enable --now postgresql
+    sudo -u postgres psql
+
+Create the database and user:
+
+    CREATE USER fathurathi_app WITH PASSWORD '<STRONG_DATABASE_PASSWORD>';
+    CREATE DATABASE fathurathi OWNER fathurathi_app;
+    \c fathurathi
+    GRANT ALL ON SCHEMA public TO fathurathi_app;
+    ALTER SCHEMA public OWNER TO fathurathi_app;
+    \q
+
+Keep PostgreSQL bound to localhost and use `127.0.0.1` as DB_HOST.
+
+
+===============================================================================
+8. CREATE THE PRODUCTION ENVIRONMENT FILE
+===============================================================================
+
+Generate a strong Django secret locally or on EC2:
+
+    /srv/faturathi/venv/bin/python -c "import secrets; print(secrets.token_urlsafe(64))"
+
+Create the protected environment file:
+
+    sudo mkdir -p /etc/faturathi
+    sudo nano /etc/faturathi/backend.env
+
+Paste and update the following:
+
+    DEBUG=False
+    SECRET_KEY=<GENERATED_DJANGO_SECRET>
+
+    ALLOWED_HOSTS=<API_DOMAIN>,<EC2_PRIVATE_IP>,127.0.0.1
+    CSRF_TRUSTED_ORIGINS=https://<API_DOMAIN>,<FRONTEND_URL>
+    CORS_ALLOW_ALL=False
+    CORS_ALLOWED_ORIGINS=<FRONTEND_URL>
+
+    DB_NAME=fathurathi
+    DB_USER=fathurathi_app
+    DB_PASSWORD=<STRONG_DATABASE_PASSWORD>
+    DB_HOST=<RDS_ENDPOINT_OR_127.0.0.1>
+    DB_PORT=5432
+
+    SECURE_SSL_REDIRECT=True
+    SECURE_HSTS_SECONDS=31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=False
+    SECURE_HSTS_PRELOAD=False
+
+    ALLOW_SEED_RESET=False
+
+    AWS_REGION=<AWS_REGION>
+    AWS_STORAGE_BUCKET_NAME=<S3_BUCKET>
+    AWS_S3_REGION_NAME=<AWS_REGION>
+    AWS_CLOUDFRONT_DOMAIN=<CLOUDFRONT_HOSTNAME_WITHOUT_HTTPS_OPTIONAL>
+
+If S3 is not being used yet, omit all four AWS/S3/CloudFront variables.
+
+Protect the file and let the application service read it:
+
+    sudo chown root:www-data /etc/faturathi/backend.env
+    sudo chmod 640 /etc/faturathi/backend.env
+
+Never commit this file, passwords, AWS keys or SECRET_KEY to Git.
+Prefer an EC2 IAM role over permanent AWS access keys.
+
+
+===============================================================================
+9. MIGRATE, COLLECT STATIC FILES AND VALIDATE DJANGO
+===============================================================================
+
+Load environment values into the current shell:
+
+    set -a
+    source /etc/faturathi/backend.env
+    set +a
+    cd /srv/faturathi/backend
+
+Run deployment checks and migrations:
+
+    /srv/faturathi/venv/bin/python manage.py check --deploy
+    /srv/faturathi/venv/bin/python manage.py migrate --noinput
+    /srv/faturathi/venv/bin/python manage.py collectstatic --noinput
+
+Create the first production administrator when not using UAT data:
+
+    /srv/faturathi/venv/bin/python manage.py createsuperuser
+
+For a new, empty UAT database only:
+
+    /srv/faturathi/venv/bin/python manage.py seed_uat_demo
+
+The UAT command creates demonstration groups, companies, users, invoices,
+credit notes, debit notes, transmissions, reports and operational logs.
+
+If business data already exists, it stops without changing anything. The
+following command is destructive and must never be used on production:
+
+    /srv/faturathi/venv/bin/python manage.py seed_uat_demo --reset
+
+UAT demo login:
+
+    superadmin@faturathi.netbue.om / Demo@1234
+    salim.h@intel-sol.om / Demo@1234
+
+
+===============================================================================
+10. TEST GUNICORN MANUALLY
+===============================================================================
+
+    cd /srv/faturathi/backend
+    set -a
+    source /etc/faturathi/backend.env
+    set +a
+    /srv/faturathi/venv/bin/gunicorn core.wsgi:application \
+        --bind 127.0.0.1:8000 --workers 3 --timeout 120
+
+From a second SSH session:
+
+    curl http://127.0.0.1:8000/api/health
+
+Expected response:
+
+    {"status":"ok"}
+
+Stop the manual Gunicorn process with Ctrl+C.
+
+
+===============================================================================
+11. CREATE THE SYSTEMD SERVICE
+===============================================================================
+
+    sudo nano /etc/systemd/system/faturathi-backend.service
+
+Paste:
+
+    [Unit]
+    Description=Faturathi Django Backend
+    After=network-online.target
+    Wants=network-online.target
+
+    [Service]
+    Type=simple
+    User=www-data
+    Group=www-data
+    WorkingDirectory=/srv/faturathi/backend
+    EnvironmentFile=/etc/faturathi/backend.env
+    ExecStart=/srv/faturathi/venv/bin/gunicorn core.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile -
+    Restart=always
+    RestartSec=5
+    TimeoutStopSec=30
+    PrivateTmp=true
+
+    [Install]
+    WantedBy=multi-user.target
+
+Give the service account read access to the deployment:
+
+    sudo chown -R ubuntu:www-data /srv/faturathi
+    sudo find /srv/faturathi -type d -exec chmod 750 {} \;
+    sudo find /srv/faturathi -type f -exec chmod 640 {} \;
+    sudo chmod 750 /srv/faturathi/venv/bin/*
+
+Enable and start the service:
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now faturathi-backend
+    sudo systemctl status faturathi-backend --no-pager
+
+View application logs:
+
+    sudo journalctl -u faturathi-backend -f
+
+
+===============================================================================
+12. CONFIGURE NGINX
+===============================================================================
+
+    sudo nano /etc/nginx/sites-available/faturathi-backend
+
+When S3 is configured, use:
+
+    server {
+        listen 80;
+        listen [::]:80;
+        server_name <API_DOMAIN>;
+
+        client_max_body_size 50M;
+
+        location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 120s;
+            proxy_connect_timeout 10s;
+        }
+    }
+
+If S3 is not configured, add these locations before `location /`:
+
+        location /static/ {
+            alias /srv/faturathi/backend/staticfiles/;
+            expires 30d;
+            access_log off;
+        }
+
+        location /media/ {
+            alias /srv/faturathi/backend/media/;
+            expires 7d;
+        }
+
+Enable the site:
+
+    sudo ln -s /etc/nginx/sites-available/faturathi-backend \
+        /etc/nginx/sites-enabled/faturathi-backend
+    sudo rm -f /etc/nginx/sites-enabled/default
+    sudo nginx -t
+    sudo systemctl restart nginx
+
+Before TLS is installed, temporarily set `SECURE_SSL_REDIRECT=False`, restart
+Gunicorn, and verify:
+
+    curl http://<API_DOMAIN>/api/health
+
+
+===============================================================================
+13. DNS AND HTTPS
+===============================================================================
+
+Create a DNS A record:
+
+    <API_DOMAIN> -> <EC2_ELASTIC_IP>
+
+Assigning an Elastic IP prevents the API address changing after EC2 restarts.
+
+Install Certbot and issue a certificate:
+
+    sudo apt install -y certbot python3-certbot-nginx
+    sudo certbot --nginx -d <API_DOMAIN>
+    sudo certbot renew --dry-run
+
+After HTTPS works, restore production security settings:
+
+    SECURE_SSL_REDIRECT=True
+
+Then restart the backend:
+
+    sudo systemctl restart faturathi-backend
+
+Verify:
+
+    curl https://<API_DOMAIN>/api/health
+    curl -I https://<API_DOMAIN>/api/docs
+
+
+===============================================================================
+14. OPTIONAL S3 AND CLOUDFRONT SETUP
+===============================================================================
+
+Create a private S3 bucket with:
+
+    Block Public Access: Enabled
+    Default encryption: Enabled
+    Versioning: Recommended
+
+Attach an IAM role to EC2 granting only required access to the bucket. Minimum
+application operations normally include ListBucket, GetObject, PutObject and
+DeleteObject for the configured bucket/prefixes.
+
+For CloudFront, keep the bucket private and use Origin Access Control. Set:
+
+    AWS_STORAGE_BUCKET_NAME=<S3_BUCKET>
+    AWS_S3_REGION_NAME=<AWS_REGION>
+    AWS_CLOUDFRONT_DOMAIN=dxxxxxxxxxxxxx.cloudfront.net
+
+Restart the service and collect static files again after changing storage:
+
+    sudo systemctl restart faturathi-backend
+    set -a; source /etc/faturathi/backend.env; set +a
+    cd /srv/faturathi/backend
+    /srv/faturathi/venv/bin/python manage.py collectstatic --noinput
+
+
+===============================================================================
+15. NORMAL APPLICATION DEPLOYMENT / UPDATE
+===============================================================================
+
+Use the following sequence for each backend release:
+
+    cd /srv/faturathi/source
+    git fetch origin
+    git checkout main
+    git pull --ff-only origin main
+
+    /srv/faturathi/venv/bin/pip install -r /srv/faturathi/backend/requirements.txt
+
+    set -a
+    source /etc/faturathi/backend.env
+    set +a
+    cd /srv/faturathi/backend
+
+    /srv/faturathi/venv/bin/python manage.py check --deploy
+    /srv/faturathi/venv/bin/python manage.py migrate --noinput
+    /srv/faturathi/venv/bin/python manage.py collectstatic --noinput
+
+    sudo systemctl restart faturathi-backend
+    sudo systemctl reload nginx
+    curl --fail https://<API_DOMAIN>/api/health
+
+Always take an RDS snapshot or verified PostgreSQL backup before migrations in
+production.
+
+
+===============================================================================
+16. DATABASE BACKUP AND RESTORE
+===============================================================================
+
+RDS production:
+
+- Enable automated backups and point-in-time recovery.
+- Take a manual snapshot before releases containing migrations.
+- Configure retention according to business and Oman tax requirements.
+
+Logical backup:
+
+    PGPASSWORD='<DB_PASSWORD>' pg_dump \
+        -h <RDS_ENDPOINT_OR_127.0.0.1> -U fathurathi_app \
+        -d fathurathi -Fc -f fathurathi_$(date +%F_%H%M).dump
+
+Restore into an empty database:
+
+    PGPASSWORD='<DB_PASSWORD>' pg_restore \
+        -h <RDS_ENDPOINT_OR_127.0.0.1> -U fathurathi_app \
+        -d fathurathi --clean --if-exists <BACKUP_FILE.dump>
+
+Test restore procedures in UAT; an untested backup is not a recovery plan.
+
+
+===============================================================================
+17. TROUBLESHOOTING
+===============================================================================
+
+Backend status and logs:
+
+    sudo systemctl status faturathi-backend --no-pager
+    sudo journalctl -u faturathi-backend -n 200 --no-pager
+
+Nginx status and logs:
+
+    sudo nginx -t
+    sudo tail -n 200 /var/log/nginx/error.log
+    sudo tail -n 200 /var/log/nginx/access.log
+
+Database connectivity:
+
+    PGPASSWORD='<DB_PASSWORD>' psql \
+        -h <RDS_ENDPOINT_OR_127.0.0.1> -U fathurathi_app -d fathurathi \
+        -c 'select now();'
+
+Migration state:
+
+    cd /srv/faturathi/backend
+    set -a; source /etc/faturathi/backend.env; set +a
+    /srv/faturathi/venv/bin/python manage.py showmigrations
+
+Direct application health:
+
+    curl http://127.0.0.1:8000/api/health
+
+Public health:
+
+    curl https://<API_DOMAIN>/api/health
+
+Common failures:
+
+- `column ... does not exist`: run `python manage.py migrate --noinput` using
+  the same environment variables as the systemd service.
+- HTTP 502: inspect Gunicorn/systemd logs and test port 8000 locally.
+- Database timeout: verify RDS and EC2 security groups and DB_HOST.
+- CSRF/CORS errors: verify exact HTTPS frontend origin in both
+  CSRF_TRUSTED_ORIGINS and CORS_ALLOWED_ORIGINS.
+- Redirect loop: ensure Nginx sends X-Forwarded-Proto and Django has
+  SECURE_PROXY_SSL_HEADER configured (already present in core/settings.py).
+- Static files missing: run collectstatic and verify S3 IAM permissions or
+  the Nginx static alias.
+
+
+===============================================================================
+18. PRODUCTION SECURITY CHECKLIST
+===============================================================================
+
+[ ] DEBUG=False
+[ ] Unique SECRET_KEY stored outside Git
+[ ] Strong and rotated PostgreSQL password
+[ ] RDS is private and accepts 5432 only from the EC2 security group
+[ ] EC2 SSH is restricted to office/VPN IP addresses
+[ ] HTTPS certificate is active and auto-renewal tested
+[ ] CORS_ALLOW_ALL=False
+[ ] Exact ALLOWED_HOSTS, CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS
+[ ] ALLOW_SEED_RESET=False
+[ ] UAT demo passwords are never used in production
+[ ] EC2 uses an IAM role instead of stored AWS access keys
+[ ] S3 bucket is private and encrypted
+[ ] Automated database backups and restore tests are configured
+[ ] CloudWatch alarms/log retention are configured
+[ ] `manage.py check --deploy` has no unresolved warnings
+[ ] `/api/health` is monitored

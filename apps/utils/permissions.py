@@ -67,9 +67,18 @@ class ResolveActiveCompany(BasePermission):
 
         own_company = user.company
         header_value = request.headers.get("X-Company-ID")
+        group_header = request.headers.get("X-Business-Group-ID")
 
         if own_company is None and is_platform_admin(user):
             all_companies = Company.objects.filter(is_active=True)
+            if group_header:
+                if group_header == "standalone":
+                    all_companies = all_companies.filter(company_group__isnull=True)
+                else:
+                    try:
+                        all_companies = all_companies.filter(company_group_id=group_header)
+                    except (ValueError, TypeError, DjangoValidationError):
+                        all_companies = all_companies.none()
             request.active_company_ids = list(all_companies.values_list("id", flat=True))
             if header_value and header_value != "group":
                 try:

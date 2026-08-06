@@ -1,4 +1,5 @@
 from rest_framework import serializers
+import secrets
 
 from .models import Notification, User
 
@@ -8,22 +9,29 @@ class UserAdminSerializer(serializers.ModelSerializer):
 
     mfa = serializers.BooleanField(source="mfa_enabled", required=False)
     status = serializers.SerializerMethodField()
+    temporaryPassword = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "email", "role", "branch", "mfa", "status",
-                  "designation", "phone", "company", "first_name", "last_name", "password"]
+        fields = ["id", "email", "role", "branch", "mfa", "status", "temporaryPassword",
+                  "designation", "phone", "company", "first_name", "last_name", "password", "is_active"]
         read_only_fields = ["id", "status"]
         extra_kwargs = {"password": {"write_only": True, "required": False}}
 
     def get_status(self, obj) -> str:
         return "Active" if obj.is_active else "Disabled"
 
+    def get_temporaryPassword(self, obj):
+        return getattr(obj, "_temporary_password", None)
+
     def create(self, validated_data):
-        password = validated_data.pop("password", None) or User.objects.make_random_password()
+        supplied_password = validated_data.pop("password", None)
+        password = supplied_password or secrets.token_urlsafe(12)
         user = User(**validated_data)
         user.set_password(password)
         user.save()
+        if not supplied_password:
+            user._temporary_password = password
         return user
 
     def update(self, instance, validated_data):

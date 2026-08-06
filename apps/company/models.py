@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 
 from core.models import BaseModel, TenantModel
 
@@ -8,6 +9,25 @@ class CompanyGroup(BaseModel):
 
     name = models.CharField(max_length=120)
     group_vatin = models.CharField(max_length=14)  # OM12xxxxxxxx — VAT filing only
+    normalized_name = models.CharField(max_length=120, null=True, blank=True, unique=True, editable=False)
+    normalized_vatin = models.CharField(max_length=14, null=True, blank=True, unique=True, editable=False)
+
+    def clean(self):
+        super().clean()
+        name_key = self.name.strip().casefold()
+        vat_key = self.group_vatin.strip().upper()
+        conflicts = CompanyGroup.all_objects.filter(is_deleted=False).exclude(pk=self.pk)
+        if conflicts.filter(name__iexact=self.name.strip()).exists():
+            raise ValidationError({"name": "A VAT group with this name already exists."})
+        if conflicts.filter(group_vatin=vat_key).exists():
+            raise ValidationError({"group_vatin": "A VAT group with this group VATIN already exists."})
+        self.normalized_name = name_key
+        self.normalized_vatin = vat_key
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

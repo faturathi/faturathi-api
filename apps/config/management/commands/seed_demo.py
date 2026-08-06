@@ -91,6 +91,14 @@ SEED_INVOICES = [
          notes="Adjustment reference: IIS-2026-07-0042 — service scope reduced, partial credit issued.",
          ent="E1", sVat="OM1100123456", erp_system="SAP S/4HANA", channel="Manual Entry",
          lines=[("Service credit adjustment", 1, "-500.000", "S")]),
+    dict(n="DN-2026-07-0013", d="2026-07-25", t="12:10:00", direction="AR", doc_type="383",
+         document_type="DEBIT_NOTE_383",
+         cp="Johnson & Co. Ltd (Oman)", cpv="OM1100654321", eas="0248:OM1100654321",
+         net="250.000", vat="12.500", status="VALIDATED", tt="10000000000000000000",
+         uuid="3d4e5f6a-7b8c-4901-8d2e-4f5a6b7c8901", cat="S", cn_ref="IIS-2026-07-0042",
+         notes="Additional implementation effort approved against the original invoice.",
+         ent="E1", sVat="OM1100123456", erp_system="Faturathi Quick Creator", channel="Manual Entry",
+         lines=[("Approved implementation scope extension", 1, "250.000", "S")]),
     dict(n="PINV-2026-07-0099", d="2026-07-24", t="08:15:00", direction="AP", doc_type="380",
          cp="Alfaris Business Solutions", cpv="OM1100334455", eas="0248:OM1100334455",
          net="3400.000", vat="170.000", status="REPORTED", tt="10000000000000000000",
@@ -113,6 +121,7 @@ class Command(BaseCommand):
         customers = self._seed_customers(companies, users)
         self._seed_invoices(companies, customers, users)
         self._seed_notifications(companies, users)
+        self._seed_logs(companies, users)
         self.stdout.write(self.style.SUCCESS(
             f"Faturathi demo data reseeded: {len(companies)} companies, {len(users)} users, "
             f"{len(SEED_INVOICES)} invoices."
@@ -281,13 +290,19 @@ class Command(BaseCommand):
             )
             return
 
-        final_status = "AS4_SENT" if spec["status"] == "SENT" else "MLS_RECEIVED"
+        final_status = {
+            "DRAFT": "QUEUED", "VALIDATED": "VALIDATED", "PENDING": "QUEUED",
+            "SUBMITTED": "VALIDATING", "SENT": "AS4_SENT", "REPORTED": "MLS_RECEIVED",
+        }.get(spec["status"], "QUEUED")
+        sent = final_status in {"AS4_SENT", "ACK_RECEIVED", "TDD_REPORTED", "MLS_RECEIVED"}
+        acknowledged = final_status in {"ACK_RECEIVED", "TDD_REPORTED", "MLS_RECEIVED"}
         Transmission.objects.create(
             company=document.company, created_by=admin_user, document=document, attempt=1,
             status=final_status, payload=payload,
-            sent_at=now, acked_at=None if final_status == "AS4_SENT" else now,
-            reported_at=None if final_status == "AS4_SENT" else now,
-            ota_response_code="OK", mls_status="" if final_status == "AS4_SENT" else "AB",
+            sent_at=now if sent else None, acked_at=now if acknowledged else None,
+            reported_at=now if final_status == "MLS_RECEIVED" else None,
+            ota_response_code="OK" if final_status not in {"QUEUED", "VALIDATING"} else "",
+            mls_status="AB" if final_status == "MLS_RECEIVED" else "",
         )
 
     # -- notifications ----------------------------------------------------
@@ -304,3 +319,24 @@ class Command(BaseCommand):
             title="AP Invoice Approved", level="INFO",
             message="PINV-2026-07-0099 was approved and posted to ERP.",
         )
+
+    def _seed_logs(self, companies, users):
+        admin_user = users["salim.h@intel-sol.om"]
+        samples = [
+            ("INFO", "USER_LOGIN", "Authentication", "Successful MFA login", {"category": "security", "severity": "INFO"}),
+            ("WARNING", "VALIDATION_WARNING", "Document", "Optional buyer postcode is missing", {"category": "validation", "severity": "WARNING", "rule": "PINT-OM-W-14"}),
+            ("ERROR", "PEPPOL_REJECTED", "Transmission", "AS4 delivery rejected by recipient access point", {"category": "peppol", "severity": "ERROR", "response_code": "C5"}),
+            ("ERROR", "OTA_REJECTION", "Document", "OTA rejected buyer VATIN format", {"category": "ota", "severity": "ERROR", "response_code": "C5"}),
+            ("WARNING", "SERVER_HEALTH", "ApplicationServer", "Worker memory crossed demonstration threshold", {"category": "server", "severity": "WARNING", "worker": "gunicorn-2"}),
+            ("INFO", "FILE_UPLOAD", "BatchUpload", "Spreadsheet batch imported successfully", {"category": "upload", "severity": "INFO", "accepted": 5, "rejected": 1}),
+            ("INFO", "ERP_SYNC", "Connector", "SAP S/4HANA synchronization completed", {"category": "erp", "severity": "INFO", "records": 12}),
+            ("ERROR", "SYSTEM_ERROR", "BackgroundJob", "Demonstration retryable timeout", {"category": "system", "severity": "ERROR", "retryable": True}),
+            ("INFO", "REPORT_GENERATED", "Report", "Monthly VAT and transmission report generated", {"category": "report", "severity": "INFO"}),
+        ]
+        for index, (_level, action, entity, message, detail) in enumerate(samples):
+            company = companies[["E1", "E2", "E3"][index % 3]]
+            SystemLog.objects.create(
+                company=company, user=admin_user, action=action, entity=entity,
+                entity_id=f"UAT-DEMO-{index + 1:02d}", detail={**detail, "message": message},
+                ip_address="127.0.0.1", created_by=admin_user,
+            )

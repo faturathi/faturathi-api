@@ -22,10 +22,13 @@ class EntitySerializer(serializers.ModelSerializer):
     invoicePrefix = serializers.CharField(source="invoice_prefix", required=False)
     invoiceSuffix = serializers.CharField(source="invoice_suffix", required=False)
     creditNoteSuffix = serializers.CharField(source="credit_note_suffix", required=False)
+    company_group = serializers.PrimaryKeyRelatedField(
+        queryset=CompanyGroup.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = Company
-        fields = ["id", "name", "nameAr", "vatin", "pid", "prefixes", "status",
+        fields = ["id", "company_group", "name", "nameAr", "vatin", "pid", "prefixes", "status",
                   "short_code", "entity_type", "crNum", "branchId", "address", "city",
                   "email", "phone", "invoicePrefix", "invoiceSuffix", "creditNoteSuffix", "is_active"]
         read_only_fields = ["id", "status"]
@@ -55,6 +58,31 @@ class CustomerSerializer(serializers.ModelSerializer):
 
 
 class CompanyGroupSerializer(serializers.ModelSerializer):
+    company_count = serializers.SerializerMethodField()
+
     class Meta:
         model = CompanyGroup
-        fields = ["id", "name", "group_vatin"]
+        fields = ["id", "name", "group_vatin", "company_count"]
+        read_only_fields = ["id", "company_count"]
+
+    def get_company_count(self, obj):
+        return obj.companies.filter(is_active=True).count()
+
+    def validate_group_vatin(self, value):
+        if not re.match(GROUP_VATIN_REGEX, value or ""):
+            raise serializers.ValidationError('Group VATIN must be "OM12" followed by exactly 8 digits.')
+        queryset = CompanyGroup.objects.filter(group_vatin=value)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError("A VAT group with this group VATIN already exists.")
+        return value
+
+    def validate_name(self, value):
+        value = value.strip()
+        queryset = CompanyGroup.objects.filter(name__iexact=value)
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise serializers.ValidationError("A VAT group with this name already exists.")
+        return value

@@ -1,4 +1,6 @@
-from rest_framework import viewsets
+from rest_framework import status, viewsets
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.response import Response
 
 from apps.utils.mixins import TenantQuerysetMixin
 from apps.utils.permissions import IsPlatformAdmin, IsTenantAdministrator, ResolveActiveCompany
@@ -20,14 +22,39 @@ class EntityViewSet(viewsets.ModelViewSet):
             qs = qs.filter(company_group_id=own_company.company_group_id)
         elif own_company is not None:
             qs = qs.filter(pk=own_company.pk)
+        elif IsPlatformAdmin().has_permission(self.request, self):
+            group_id = self.request.headers.get("X-Business-Group-ID")
+            if group_id:
+                qs = qs.filter(company_group__isnull=True) if group_id == "standalone" else qs.filter(company_group_id=group_id)
         return qs
 
     def perform_create(self, serializer):
         own_company = getattr(self.request.user, "company", None)
-        serializer.save(
-            company_group_id=getattr(own_company, "company_group_id", None),
-            created_by=self.request.user,
-        )
+        standalone = bool(self.request.data.get("standalone"))
+        platform_admin = IsPlatformAdmin().has_permission(self.request, self)
+        if standalone and not platform_admin:
+            raise ValidationError({"standalone": ["Only a platform administrator can create a standalone company."]})
+        if platform_admin:
+            group = None if standalone else serializer.validated_data.get("company_group")
+        else:
+            group = getattr(own_company, "company_group", None)
+        if not standalone and group is None:
+            raise ValidationError({"company_group": ["Select a valid business group before creating a company."]})
+        serializer.save(company_group=group, created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        platform_admin = IsPlatformAdmin().has_permission(self.request, self)
+        if platform_admin:
+            standalone = bool(self.request.data.get("standalone"))
+            entity_type = self.request.data.get("entity_type", serializer.instance.entity_type)
+            group = None if standalone else serializer.validated_data.get(
+                "company_group", serializer.instance.company_group
+            )
+            if entity_type in {"SUBSIDIARY", "BRANCH"} and group is None:
+                raise ValidationError({"company_group": ["Subsidiaries and branches must belong to a business group."]})
+            serializer.save(company_group=group)
+        else:
+            serializer.save(company_group=serializer.instance.company_group)
 
     def perform_destroy(self, instance):
         instance.soft_delete()
@@ -62,7 +89,28 @@ class CompanyGroupViewSet(viewsets.ModelViewSet):
         return CompanyGroup.objects.none()
 
     def perform_create(self, serializer):
-        if not IsPlatformAdmin().has_permission(self.request, self):
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Only a platform administrator can create a business group.")
+        self._require_platform_admin()
         serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        self._require_platform_admin()
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        self._require_platform_admin()
+        instance = self.get_object()
+        company_count = instance.companies.filter(is_active=True).count()
+        if company_count:
+            return Response(
+                {
+                    "detail": "This business group cannot be deleted while companies belong to it.",
+                    "company_count": company_count,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        instance.soft_delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _require_platform_admin(self):
+        if not IsPlatformAdmin().has_permission(self.request, self):
+            raise PermissionDenied("Only a platform administrator can manage business groups.")

@@ -121,7 +121,9 @@ def to_compat(document) -> dict:
         "sVat": document.company.vat_number if document.company_id else None,
         "erpSystem": document.erp_system or None,
         "sourceChannel": document.get_source_display(),
-        "cn": f"Ref {document.billing_reference.invoice_number}" if document.billing_reference_id else None,
+        "cn": document.billing_reference.invoice_number if document.billing_reference_id else None,
+        "notes": document.notes,
+        "validationErrors": transmission.validation_errors if transmission else [],
         "ap": document.ap_status or None,
         "b2c": document.is_b2c,
         "lines": lines,
@@ -188,7 +190,7 @@ def build_document_payload(payload: dict, direction: str = "AR") -> dict:
         })
 
     billing_reference_number = (payload.get("billing_reference") or payload.get("billingReference")
-                                or payload.get("BillingReference") or payload.get("cn_ref"))
+                                or payload.get("billingReferenceNumber") or payload.get("BillingReference") or payload.get("cn_ref") or payload.get("cn"))
 
     return {
         "direction": direction,

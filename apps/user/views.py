@@ -9,6 +9,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.company.models import Company
 from apps.company.serializers import EntitySerializer
+from apps.config.models import SystemConfig
+from apps.config import services as config_services
 from apps.utils.permissions import IsTenantAdministrator, ResolveActiveCompany, is_platform_admin, resolve_write_company
 
 from .models import Notification, User
@@ -53,7 +55,11 @@ class LoginView(APIView):
         if user is None or not user.is_active:
             return Response({"detail": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
 
-        if user.mfa_enabled:
+        config = SystemConfig.objects.filter(company_id=user.company_id).first() if user.company_id else None
+        if config and not config.allow_user_logins:
+            return Response({"detail": "User portal login is disabled for this company. Contact your administrator."},
+                            status=status.HTTP_403_FORBIDDEN)
+        if user.mfa_enabled or (config and config.mfa_enforced):
             return Response({"mfa_required": True, "email": user.email})
         return _auth_response(user)
 
@@ -72,6 +78,11 @@ class MfaVerifyView(APIView):
             user = User.objects.get(email__iexact=email, is_active=True)
         except User.DoesNotExist:
             return Response({"detail": "Invalid email."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        config = SystemConfig.objects.filter(company_id=user.company_id).first() if user.company_id else None
+        if config and not config.allow_user_logins:
+            return Response({"detail": "User portal login is disabled for this company. Contact your administrator."},
+                            status=status.HTTP_403_FORBIDDEN)
 
         if otp != settings.DEMO_MFA_OTP:
             return Response({"detail": f"Invalid 2FA OTP code. Use the demo security code: {settings.DEMO_MFA_OTP}."},
@@ -107,23 +118,34 @@ class UserAdminViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         own_company = getattr(self.request.user, "company", None)
-        qs = User.objects.filter(is_active=True)
+        qs = User.objects.all()
         if own_company is not None:
             qs = qs.filter(company=own_company)
         elif not is_platform_admin(self.request.user):
             qs = qs.none()
-        return qs
+        return qs.order_by("email")
 
     def perform_create(self, serializer):
         own_company = getattr(self.request.user, "company", None)
         if own_company is None and not is_platform_admin(self.request.user):
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("A tenant company is required to manage users.")
-        serializer.save(company=own_company)
+        company = resolve_write_company(self.request, self.request.data)
+        serializer.save(company=company)
 
     def perform_destroy(self, instance):
         instance.is_active = False
         instance.save(update_fields=["is_active"])
+
+    def perform_update(self, serializer):
+        if serializer.instance == self.request.user and serializer.validated_data.get("is_active") is False:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"is_active": ["You cannot disable your own account."]})
+        user = serializer.save(company=serializer.instance.company)
+        config_services.log(
+            self.request, "USER_ENABLED" if user.is_active else "USER_DISABLED",
+            entity="User", entity_id=user.id, target_email=user.email,
+        )
 
 
 class NotificationViewSet(viewsets.ModelViewSet):

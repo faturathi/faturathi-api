@@ -15,6 +15,7 @@ class SystemConfig(TenantModel):
     security_alerts = models.BooleanField(default=True)
     admin_alerts = models.BooleanField(default=True)
     allow_user_logins = models.BooleanField(default=True)
+    enable_auto_backups = models.BooleanField(default=True)
     backup_retention_years = models.PositiveSmallIntegerField(default=7)
     maintenance_window = models.CharField(max_length=40, default="Sun 02:00-04:00 GST")
     webhook_url = models.URLField(blank=True)
@@ -31,3 +32,15 @@ class SystemLog(TenantModel):
     entity_id = models.CharField(max_length=40, blank=True)
     detail = models.JSONField(default=dict, blank=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+
+
+class ApiCredential(TenantModel):
+    """Company-scoped machine credential. The raw key is returned once; only its hash is stored."""
+
+    name = models.CharField(max_length=120)
+    key_prefix = models.CharField(max_length=24, db_index=True)
+    key_hash = models.CharField(max_length=64, unique=True)
+    service_user = models.ForeignKey("user.User", on_delete=models.CASCADE, related_name="api_credentials")
+    scopes = models.JSONField(default=list, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)

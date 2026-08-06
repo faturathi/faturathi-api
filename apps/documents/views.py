@@ -171,10 +171,12 @@ class InvoiceViewSet(viewsets.ViewSet):
                              entity_id=doc.invoice_number, status=doc.status)
         invoice = compat.to_compat(doc)
         if doc.status == "REJECTED":
+            latest_transmission = doc.transmissions.order_by("-created_at").first()
             return Response({
                 "status": "rejected",
                 "message": "Re-submission failed PINT-OM validation rules.",
                 "error": invoice["err"],
+                "errors": latest_transmission.validation_errors if latest_transmission else [],
                 "invoice": invoice,
             }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         return Response({
@@ -267,8 +269,17 @@ def _create_documents_from_rows(rows, company, user, queryset, source: str, erp_
             serializer = DocumentSerializer(data=doc_payload)
             serializer.is_valid(raise_exception=True)
             document = serializer.save(company=company, created_by=user, direction=direction, source=source)
-            peppol_services.submit_document(document, user)
-            created.append(compat.to_compat(document))
+            transmission = peppol_services.submit_document(document, user)
+            result = compat.to_compat(document)
+            created.append(result)
+            if document.status == "REJECTED":
+                errors.append({
+                    "row": idx,
+                    "invoice_number": document.invoice_number,
+                    "document_id": str(document.id),
+                    "errors": transmission.validation_errors,
+                    "error": "; ".join(error.get("message", str(error)) for error in transmission.validation_errors),
+                })
         except Exception as exc:
             errors.append({"row": idx, "invoice_number": item.get("n") or item.get("invoice_number"),
                             "error": str(exc)})
