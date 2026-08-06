@@ -7,6 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from decouple import AutoConfig
+from corsheaders.defaults import default_headers, default_methods
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -58,14 +59,12 @@ INSTALLED_APPS = [
 AUTH_USER_MODEL = "user.User"
 
 MIDDLEWARE = [
-    "django.middleware.security.SecurityMiddleware",
+    # Must be first so CORS headers are added even to redirects and errors.
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "core.middleware.TrustAllOriginsCsrfViewMiddleware"
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "core.urls"
@@ -218,27 +217,33 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOWED_ORIGINS = ["*"]
-# Every entry must include a scheme. The custom CSRF middleware accepts all
-# other Origin values as well, while retaining Django's CSRF-token validation.
-CSRF_TRUSTED_ORIGINS = [
-    "https://demo.faturathi.com",
-    "https://api.faturathi.com",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
+CORS_ALLOWED_ORIGINS = []
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "x-api-key",
+    "x-company-id",
+    "x-business-group-id",
+    "x-requested-with",
 ]
+CORS_ALLOW_METHODS = list(default_methods)
+CORS_EXPOSE_HEADERS = ["*"]
+CORS_PREFLIGHT_MAX_AGE = 86400
+
+# CSRF middleware is intentionally disabled for this demo prototype. DRF uses
+# JWT/API-key authentication, not cookie-backed SessionAuthentication.
+CSRF_TRUSTED_ORIGINS = []
 
 # Elastic Beanstalk terminates TLS at its load balancer and forwards the original scheme.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
-SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", str(not DEBUG)).lower() in {"1", "true", "yes"}
-SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "31536000" if not DEBUG else "0"))
-SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv("SECURE_HSTS_INCLUDE_SUBDOMAINS", "False").lower() in {"1", "true", "yes"}
-SECURE_HSTS_PRELOAD = os.getenv("SECURE_HSTS_PRELOAD", "False").lower() in {"1", "true", "yes"}
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+SECURE_SSL_REDIRECT = False
+SECURE_HSTS_SECONDS = 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
+SECURE_CONTENT_TYPE_NOSNIFF = False
+X_FRAME_OPTIONS = "ALLOWALL"
 
 # Demo-only OTA/UUIDv5 namespace and simulated MFA OTP (matches faturathi-ui LoginPage.tsx)
 OTA_NAMESPACE = "e0bc4ac8-b025-46e5-a76d-0c893fc3027e"
