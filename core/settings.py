@@ -6,10 +6,12 @@ from datetime import timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
+from decouple import AutoConfig
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+config = AutoConfig(search_path=BASE_DIR)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me-for-demo-only")
 DEBUG = os.getenv("DEBUG", "True").lower() in {"1", "true", "yes"}
@@ -121,29 +123,55 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Elastic Beanstalk instances are replaceable, so static assets and uploaded files are stored in
 # S3. Point AWS_CLOUDFRONT_DOMAIN at the distribution hostname to serve them through CloudFront.
-AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME", "")
-AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", os.getenv("AWS_REGION", "")) or None
-AWS_CLOUDFRONT_DOMAIN = os.getenv("AWS_CLOUDFRONT_DOMAIN", "")
-AWS_S3_CUSTOM_DOMAIN = AWS_CLOUDFRONT_DOMAIN or (
-    f"{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com"
-    if AWS_STORAGE_BUCKET_NAME and AWS_S3_REGION_NAME
-    else (f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com" if AWS_STORAGE_BUCKET_NAME else "")
-)
+AWS_STORAGE_BUCKET_NAME = config("AWS_STORAGE_BUCKET_NAME", default="").strip()
+AWS_S3_REGION_NAME = config(
+    "AWS_S3_REGION_NAME", default=config("AWS_REGION", default="")
+).strip() or None
+AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID", default="").strip() or None
+AWS_SECRET_ACCESS_KEY = config("AWS_SECRET_ACCESS_KEY", default="").strip() or None
+AWS_SESSION_TOKEN = config("AWS_SESSION_TOKEN", default="").strip() or None
+AWS_S3_ENDPOINT_URL = config("AWS_S3_ENDPOINT_URL", default="").strip() or None
+AWS_CLOUDFRONT_DOMAIN = config("AWS_CLOUDFRONT_DOMAIN", default="").strip().removeprefix("https://").rstrip("/")
+# Do not set a direct S3 hostname as custom_domain. With a private bucket that
+# would generate unsigned URLs and produce the 403 errors seen in Django Admin.
+# Without CloudFront, django-storages generates temporary signed S3 URLs.
+AWS_S3_CUSTOM_DOMAIN = AWS_CLOUDFRONT_DOMAIN or None
 AWS_DEFAULT_ACL = None
-AWS_QUERYSTRING_AUTH = False
-AWS_S3_OBJECT_PARAMETERS = {"CacheControl": "max-age=31536000, immutable"}
+AWS_S3_SIGNATURE_VERSION = "s3v4"
+AWS_S3_ADDRESSING_STYLE = config("AWS_S3_ADDRESSING_STYLE", default="virtual")
+AWS_S3_FILE_OVERWRITE = False
+AWS_QUERYSTRING_AUTH = not bool(AWS_CLOUDFRONT_DOMAIN)
+AWS_QUERYSTRING_EXPIRE = config("AWS_QUERYSTRING_EXPIRE", default=3600, cast=int)
 
 if AWS_STORAGE_BUCKET_NAME:
-    STATIC_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/static/"
-    MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/media/"
+    STATIC_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/static/" if AWS_S3_CUSTOM_DOMAIN else "/static/"
+    MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/media/" if AWS_S3_CUSTOM_DOMAIN else "/media/"
+    common_s3_options = {
+        "bucket_name": AWS_STORAGE_BUCKET_NAME,
+        "region_name": AWS_S3_REGION_NAME,
+        "endpoint_url": AWS_S3_ENDPOINT_URL,
+        "custom_domain": AWS_S3_CUSTOM_DOMAIN,
+        "default_acl": None,
+        "querystring_auth": AWS_QUERYSTRING_AUTH,
+        "querystring_expire": AWS_QUERYSTRING_EXPIRE,
+    }
     STORAGES = {
         "default": {
             "BACKEND": "storages.backends.s3.S3Storage",
-            "OPTIONS": {"location": "media", "file_overwrite": False},
+            "OPTIONS": {
+                **common_s3_options,
+                "location": "media",
+                "file_overwrite": False,
+            },
         },
         "staticfiles": {
             "BACKEND": "storages.backends.s3.S3Storage",
-            "OPTIONS": {"location": "static"},
+            "OPTIONS": {
+                **common_s3_options,
+                "location": "static",
+                "file_overwrite": True,
+                "object_parameters": {"CacheControl": "max-age=31536000, immutable"},
+            },
         },
     }
 else:
