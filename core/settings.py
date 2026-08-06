@@ -13,6 +13,7 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me-for-demo-only")
 DEBUG = os.getenv("DEBUG", "True").lower() in {"1", "true", "yes"}
+CSRF_TRUST_ALL_ORIGINS = os.getenv("CSRF_TRUST_ALL_ORIGINS", "True").lower() in {"1", "true", "yes"}
 
 
 def env_list(name: str, default: str = "") -> list[str]:
@@ -21,7 +22,7 @@ def env_list(name: str, default: str = "") -> list[str]:
 
 ALLOWED_HOSTS = env_list(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1" if DEBUG else ".elasticbeanstalk.com",
+    "*",
 )
 
 # faturathi-ui's server.ts contract uses no-trailing-slash paths (e.g. POST /api/invoices).
@@ -60,7 +61,11 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
+    (
+        "core.middleware.TrustAllOriginsCsrfViewMiddleware"
+        if CSRF_TRUST_ALL_ORIGINS
+        else "django.middleware.csrf.CsrfViewMiddleware"
+    ),
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -105,6 +110,12 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Muscat"
 USE_I18N = True
 USE_TZ = True
+
+# Maximum request/file upload size. Nginx or a load balancer must allow at
+# least the same size (the EC2 deployment guide currently uses 50 MB).
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "30"))
+DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
@@ -183,7 +194,7 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
 
-CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL", str(DEBUG)).lower() in {"1", "true", "yes"}
+CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL", "True").lower() in {"1", "true", "yes"}
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 
