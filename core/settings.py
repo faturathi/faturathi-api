@@ -15,17 +15,17 @@ config = AutoConfig(search_path=BASE_DIR)
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me-for-demo-only")
 DEBUG = os.getenv("DEBUG", "True").lower() in {"1", "true", "yes"}
-CSRF_TRUST_ALL_ORIGINS = os.getenv("CSRF_TRUST_ALL_ORIGINS", "True").lower() in {"1", "true", "yes"}
+# Host/origin policy is intentionally hardcoded for this demo/UAT deployment.
+# Django does not accept CSRF_TRUSTED_ORIGINS=["*"], so universal CSRF Origin
+# acceptance is implemented by TrustAllOriginsCsrfViewMiddleware below.
+CSRF_TRUST_ALL_ORIGINS = True
 
 
 def env_list(name: str, default: str = "") -> list[str]:
     return [value.strip() for value in os.getenv(name, default).split(",") if value.strip()]
 
 
-ALLOWED_HOSTS = env_list(
-    "ALLOWED_HOSTS",
-    "*",
-)
+ALLOWED_HOSTS = ["*"]
 
 # faturathi-ui's server.ts contract uses no-trailing-slash paths (e.g. POST /api/invoices).
 # APPEND_SLASH's redirect turns a POST into a GET on a slash mismatch, so every /api/ path
@@ -222,9 +222,18 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
 
-CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL", "True").lower() in {"1", "true", "yes"}
-CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
-CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = []
+# Every entry must include a scheme. The custom CSRF middleware accepts all
+# other Origin values as well, while retaining Django's CSRF-token validation.
+CSRF_TRUSTED_ORIGINS = [
+    "https://demo.faturathi.com",
+    "https://api.faturathi.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
 
 # Elastic Beanstalk terminates TLS at its load balancer and forwards the original scheme.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
