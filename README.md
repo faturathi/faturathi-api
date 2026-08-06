@@ -58,7 +58,7 @@ python -m venv venv
 pip install -r requirements.txt
 Copy-Item .env.example .env
 python manage.py migrate
-python manage.py seed_demo
+python manage.py seed_uat_demo
 python manage.py runserver 8000
 ```
 
@@ -74,8 +74,9 @@ DB_PORT=5432
 
 ## Sample data
 
-`python manage.py seed_demo` is destructive: it clears and recreates demo data. It is permitted only
-when `ALLOW_SEED_RESET=True`; production should always set it to `False`.
+Use `python manage.py seed_uat_demo` for a new, empty UAT database. It refuses to modify an
+environment that already contains companies or business groups unless the explicit `--reset`
+option is supplied.
 
 The seed contains:
 
@@ -83,8 +84,10 @@ The seed contains:
 - 3 legal companies
 - 5 users
 - 11 customers including walk-in customers
-- 10 documents and their Peppol transmission histories
-- Standard invoice, credit note, AR, AP, reported, sent and rejected examples
+- 11 documents and their Peppol transmission histories
+- Standard invoices, credit note, debit note, AR and AP examples
+- Validated, sent, reported and rejected document/transmission states
+- Security, validation, upload, ERP, Peppol, OTA, server, report and system logs
 
 Demo credentials:
 
@@ -96,6 +99,105 @@ MFA code:      582910
 
 The `sample_data/` directory contains CSV examples for all six document profiles and a formatted
 Excel workbook containing the 73-field OTA reference structure.
+
+## Django management commands and demonstration data
+
+Run management commands from the backend directory after activating the virtual environment and
+configuring the PostgreSQL connection:
+
+```powershell
+cd D:\Projects\Faturathi\backend
+.\venv\Scripts\Activate.ps1
+python manage.py migrate --noinput
+```
+
+On Linux, EC2 or Elastic Beanstalk, use the environment's Python executable, for example:
+
+```bash
+cd /srv/faturathi/backend
+/srv/faturathi/venv/bin/python manage.py migrate --noinput
+```
+
+### Populate a new UAT database safely
+
+```powershell
+python manage.py seed_uat_demo
+```
+
+`seed_uat_demo` is the recommended UAT command. It creates the complete demonstration dataset when
+the database has no company/group business data. When existing business data is detected, it exits
+with an error and does not change anything.
+
+The generated dataset includes:
+
+- One Oman VAT/business group with an OM12 group VATIN
+- Three tenant companies with separate OM11 VATINs and Peppol participant identifiers
+- Platform administrator, tenant administrator, approver, maker and viewer accounts
+- Tenant-level `SystemConfig` rows and walk-in/registered customers
+- Standard AR invoices from manual, REST API, ERP, SFTP and spreadsheet sources
+- An AP inbound invoice, credit note and debit note with billing references
+- Document lines, calculated VAT totals and canonical PINT-OM JSON snapshots
+- Queued/validated, AS4-sent, MLS-reported and OTA-rejected transmission examples
+- User notifications and operational audit entries
+- INFO, WARNING and ERROR logs covering authentication, validation, file upload, ERP sync,
+  Peppol, OTA, application server health, report generation and retryable system errors
+
+This data powers the dashboard counts, invoice register, AR/AP views, lifecycle reports,
+transmission screens, notifications and system-log screens.
+
+### Replace an existing environment with UAT data
+
+```powershell
+python manage.py seed_uat_demo --reset
+```
+
+> **Destructive operation:** `--reset` deletes existing application users, groups, companies,
+> customers, documents, transmissions, configurations, notifications and logs before recreating
+> the demonstration dataset. Take a verified database backup first. Never run this command against
+> a production database.
+
+### Low-level demo reset command
+
+```powershell
+python manage.py seed_demo
+```
+
+`seed_demo` is the low-level reset used internally by `seed_uat_demo`. It always wipes and rebuilds
+the application dataset and does not perform the existing-business-data safety check. Prefer
+`seed_uat_demo` for deployment scripts and operator use.
+
+The `ALLOW_SEED_RESET` setting protects only the HTTP reset endpoints (`/api/config/reset-seeds`,
+`/api/reset-db` and `/api/clear`). It does not prevent a server operator with shell access from
+running `seed_demo`. Production must set `ALLOW_SEED_RESET=False` and restrict shell/SSH access.
+
+### Verify the populated data
+
+```powershell
+python manage.py shell -c "from apps.company.models import CompanyGroup,Company; from apps.documents.models import Document; from apps.peppol.models import Transmission; from apps.config.models import SystemLog; from apps.user.models import User; print({'groups':CompanyGroup.objects.count(),'companies':Company.objects.count(),'users':User.objects.count(),'documents':Document.objects.count(),'transmissions':Transmission.objects.count(),'logs':SystemLog.objects.count()})"
+```
+
+Expected base totals are one group, three companies, five users, eleven documents, eleven
+transmissions and nine demonstration system logs. Additional API activity may increase logs and
+notifications.
+
+Useful inspection commands:
+
+```powershell
+python manage.py showmigrations
+python manage.py check
+python manage.py shell -c "from apps.documents.models import Document; print(list(Document.objects.values_list('invoice_number','document_type','status','source')))"
+python manage.py shell -c "from apps.config.models import SystemLog; print(list(SystemLog.objects.values_list('action','entity','detail')))"
+```
+
+### Create a production administrator without sample data
+
+For production, do not run either seed command. Apply migrations and create a dedicated
+administrator instead:
+
+```powershell
+python manage.py migrate --noinput
+python manage.py createsuperuser
+```
 
 ## Document types
 
@@ -269,5 +371,6 @@ python manage.py spectacular --file openapi.yml --validate
 
 ## AWS deployment
 
-See `DEPLOY_AWS_EB.md`. Pushes to `main` run PostgreSQL-backed tests and deploy through the official
-AWS Elastic Beanstalk GitHub Action.
+For EC2/RDS deployment, see `Docs/deployment.txt`. For Elastic Beanstalk, see
+`DEPLOY_AWS_EB.md`. Pushes to `main` run PostgreSQL-backed tests and can deploy through the AWS
+Elastic Beanstalk GitHub workflow.
