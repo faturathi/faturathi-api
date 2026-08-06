@@ -1,0 +1,14 @@
+.git/
+.github/
+.elasticbeanstalk/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+staticfiles/
+media/
+outputs/
+*.log
+.pytest_cache/
+.coverage

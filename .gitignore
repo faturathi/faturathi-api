@@ -1,0 +1,30 @@
+# Python / Django
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local secrets
+venv/
+.venv/
+.env
+!.env.example
+
+# Uploads / generated exports
+media/
+staticfiles/
+outputs/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Elastic Beanstalk CLI local state
+.elasticbeanstalk/
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml

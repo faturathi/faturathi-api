@@ -1,0 +1,3117 @@
+openapi: 3.0.3
+info:
+  title: Faturathi SaaS e-Invoicing API
+  version: 1.0.0
+  description: Tenant-isolated Oman PINT-OM billing, document ingestion, reporting
+    and Peppol lifecycle API.
+paths:
+  /api/auth/login:
+    post:
+      operationId: auth_login_create
+      description: 'POST /api/auth/login/ -> tokens, or {"mfa_required": true} for
+        mfa_enabled users.'
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/auth/me:
+    get:
+      operationId: auth_me_retrieve
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/auth/mfa-verify:
+    post:
+      operationId: auth_mfa_verify_create
+      description: 'POST /api/auth/mfa-verify/ email + otp (simulated: always DEMO_MFA_OTP)
+        -> tokens.'
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MfaRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MfaRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/auth/refresh:
+    post:
+      operationId: auth_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/clear:
+    post:
+      operationId: clear_create
+      description: POST /api/config/reset-seeds/ (aliased at /api/reset-db, /api/clear)
+        — wipes + reseeds demo data.
+      tags:
+      - clear
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/company-groups:
+    get:
+      operationId: company_groups_list
+      description: |-
+        Our own company-group lookup. NOTE: /api/vat-groups is reserved for VAT rate
+        categories (see apps.utils.constants.VAT_CATEGORIES / reports app), not this model.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - company-groups
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCompanyGroupList'
+          description: ''
+    post:
+      operationId: company_groups_create
+      description: |-
+        Our own company-group lookup. NOTE: /api/vat-groups is reserved for VAT rate
+        categories (see apps.utils.constants.VAT_CATEGORIES / reports app), not this model.
+      tags:
+      - company-groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyGroup'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CompanyGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CompanyGroup'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyGroup'
+          description: ''
+  /api/company-groups/{id}:
+    get:
+      operationId: company_groups_retrieve
+      description: |-
+        Our own company-group lookup. NOTE: /api/vat-groups is reserved for VAT rate
+        categories (see apps.utils.constants.VAT_CATEGORIES / reports app), not this model.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company group.
+        required: true
+      tags:
+      - company-groups
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyGroup'
+          description: ''
+    put:
+      operationId: company_groups_update
+      description: |-
+        Our own company-group lookup. NOTE: /api/vat-groups is reserved for VAT rate
+        categories (see apps.utils.constants.VAT_CATEGORIES / reports app), not this model.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company group.
+        required: true
+      tags:
+      - company-groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyGroup'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CompanyGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CompanyGroup'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyGroup'
+          description: ''
+    patch:
+      operationId: company_groups_partial_update
+      description: |-
+        Our own company-group lookup. NOTE: /api/vat-groups is reserved for VAT rate
+        categories (see apps.utils.constants.VAT_CATEGORIES / reports app), not this model.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company group.
+        required: true
+      tags:
+      - company-groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCompanyGroup'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCompanyGroup'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCompanyGroup'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyGroup'
+          description: ''
+    delete:
+      operationId: company_groups_destroy
+      description: |-
+        Our own company-group lookup. NOTE: /api/vat-groups is reserved for VAT rate
+        categories (see apps.utils.constants.VAT_CATEGORIES / reports app), not this model.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company group.
+        required: true
+      tags:
+      - company-groups
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/config:
+    get:
+      operationId: config_retrieve
+      tags:
+      - config
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConfig'
+          description: ''
+    put:
+      operationId: config_update
+      tags:
+      - config
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemConfig'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SystemConfig'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SystemConfig'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConfig'
+          description: ''
+    patch:
+      operationId: config_partial_update
+      tags:
+      - config
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSystemConfig'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSystemConfig'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSystemConfig'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConfig'
+          description: ''
+  /api/config/logs:
+    get:
+      operationId: config_logs_list
+      parameters:
+      - in: query
+        name: action
+        schema:
+          type: string
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: entity
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - config
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSystemLogList'
+          description: ''
+  /api/config/reset-seeds:
+    post:
+      operationId: config_reset_seeds_create
+      description: POST /api/config/reset-seeds/ (aliased at /api/reset-db, /api/clear)
+        — wipes + reseeds demo data.
+      tags:
+      - config
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/customers:
+    get:
+      operationId: customers_list
+      description: |-
+        ViewSet mixin: scopes the queryset to request.active_company_ids (set by
+        core.middleware.ActiveCompanyMiddleware) and stamps company/created_by on create.
+      parameters:
+      - in: query
+        name: is_walkin
+        schema:
+          type: boolean
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - customers
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCustomerList'
+          description: ''
+    post:
+      operationId: customers_create
+      description: |-
+        ViewSet mixin: scopes the queryset to request.active_company_ids (set by
+        core.middleware.ActiveCompanyMiddleware) and stamps company/created_by on create.
+      tags:
+      - customers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Customer'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Customer'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+          description: ''
+  /api/customers/{id}:
+    get:
+      operationId: customers_retrieve
+      description: |-
+        ViewSet mixin: scopes the queryset to request.active_company_ids (set by
+        core.middleware.ActiveCompanyMiddleware) and stamps company/created_by on create.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this customer.
+        required: true
+      tags:
+      - customers
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+          description: ''
+    put:
+      operationId: customers_update
+      description: |-
+        ViewSet mixin: scopes the queryset to request.active_company_ids (set by
+        core.middleware.ActiveCompanyMiddleware) and stamps company/created_by on create.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this customer.
+        required: true
+      tags:
+      - customers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Customer'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Customer'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+          description: ''
+    patch:
+      operationId: customers_partial_update
+      description: |-
+        ViewSet mixin: scopes the queryset to request.active_company_ids (set by
+        core.middleware.ActiveCompanyMiddleware) and stamps company/created_by on create.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this customer.
+        required: true
+      tags:
+      - customers
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCustomer'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCustomer'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCustomer'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+          description: ''
+    delete:
+      operationId: customers_destroy
+      description: |-
+        ViewSet mixin: scopes the queryset to request.active_company_ids (set by
+        core.middleware.ActiveCompanyMiddleware) and stamps company/created_by on create.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this customer.
+        required: true
+      tags:
+      - customers
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/document-types:
+    get:
+      operationId: document_types_retrieve
+      tags:
+      - document-types
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentType'
+          description: ''
+  /api/entities:
+    get:
+      operationId: entities_list
+      description: /api/entities — legal entities (Companies) in the caller's VAT
+        group.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - entities
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEntityList'
+          description: ''
+    post:
+      operationId: entities_create
+      description: /api/entities — legal entities (Companies) in the caller's VAT
+        group.
+      tags:
+      - entities
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Entity'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Entity'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Entity'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+          description: ''
+  /api/entities/{id}:
+    get:
+      operationId: entities_retrieve
+      description: /api/entities — legal entities (Companies) in the caller's VAT
+        group.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company.
+        required: true
+      tags:
+      - entities
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+          description: ''
+    put:
+      operationId: entities_update
+      description: /api/entities — legal entities (Companies) in the caller's VAT
+        group.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company.
+        required: true
+      tags:
+      - entities
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Entity'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Entity'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Entity'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+          description: ''
+    patch:
+      operationId: entities_partial_update
+      description: /api/entities — legal entities (Companies) in the caller's VAT
+        group.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company.
+        required: true
+      tags:
+      - entities
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedEntity'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedEntity'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedEntity'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+          description: ''
+    delete:
+      operationId: entities_destroy
+      description: /api/entities — legal entities (Companies) in the caller's VAT
+        group.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company.
+        required: true
+      tags:
+      - entities
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/invoices:
+    get:
+      operationId: invoices_list
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      tags:
+      - invoices
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Document'
+          description: ''
+    post:
+      operationId: invoices_create
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/invoices/{invoice_number}:
+    get:
+      operationId: invoices_retrieve
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+    patch:
+      operationId: invoices_partial_update
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDocument'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+    delete:
+      operationId: invoices_destroy
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/invoices/{invoice_number}/approve:
+    post:
+      operationId: invoices_approve_create
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/invoices/{invoice_number}/cancel:
+    post:
+      operationId: invoices_cancel_create
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/invoices/{invoice_number}/pint-payload:
+    get:
+      operationId: invoices_pint_payload_retrieve
+      description: Canonical OTA JSON used for audit, export, Peppol and diagnostics.
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/invoices/{invoice_number}/resubmit:
+    post:
+      operationId: invoices_resubmit_create
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/invoices/{invoice_number}/submit:
+    post:
+      operationId: invoices_submit_create
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/invoices/{invoice_number}/validate:
+    post:
+      operationId: invoices_validate_create
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      parameters:
+      - in: path
+        name: invoice_number
+        schema:
+          type: string
+          pattern: ^[^/]+$
+        required: true
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/invoices/ap:
+    post:
+      operationId: invoices_ap_create
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/invoices/inbound:
+    post:
+      operationId: invoices_inbound_create
+      description: /api/invoices — plain-array list, invoice_number-keyed lookups
+        (matches faturathi-ui).
+      tags:
+      - invoices
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Document'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Document'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+          description: ''
+  /api/notifications:
+    get:
+      operationId: notifications_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNotificationList'
+          description: ''
+    post:
+      operationId: notifications_create
+      tags:
+      - notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Notification'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Notification'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Notification'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/notifications/{id}:
+    get:
+      operationId: notifications_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification.
+        required: true
+      tags:
+      - notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+    patch:
+      operationId: notifications_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification.
+        required: true
+      tags:
+      - notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedNotification'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedNotification'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedNotification'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/notifications/{id}/read:
+    post:
+      operationId: notifications_read_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification.
+        required: true
+      tags:
+      - notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Notification'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Notification'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Notification'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/peppol/transmissions:
+    get:
+      operationId: peppol_transmissions_list
+      description: GET /api/peppol/transmissions/?document=<invoice_number> — lifecycle
+        timeline (TDD & MLS).
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - peppol
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTransmissionList'
+          description: ''
+  /api/receive:
+    post:
+      operationId: receive_create
+      tags:
+      - receive
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/reports/dashboard:
+    get:
+      operationId: reports_dashboard_retrieve
+      tags:
+      - reports
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/reports/tax-grid:
+    get:
+      operationId: reports_tax_grid_retrieve
+      tags:
+      - reports
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/reports/tax-grid/export:
+    get:
+      operationId: reports_tax_grid_export_retrieve
+      tags:
+      - reports
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/requests:
+    get:
+      operationId: requests_retrieve
+      tags:
+      - requests
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/reset-db:
+    post:
+      operationId: reset_db_create
+      description: POST /api/config/reset-seeds/ (aliased at /api/reset-db, /api/clear)
+        — wipes + reseeds demo data.
+      tags:
+      - reset-db
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/upload-batch:
+    post:
+      operationId: upload_batch_create
+      tags:
+      - upload-batch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/upload-batch/file:
+    post:
+      operationId: upload_batch_file_create
+      tags:
+      - upload-batch
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/users:
+    get:
+      operationId: users_list
+      description: /api/users — user management within the caller's own company.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserAdminList'
+          description: ''
+    post:
+      operationId: users_create
+      description: /api/users — user management within the caller's own company.
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserAdmin'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserAdmin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserAdmin'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAdmin'
+          description: ''
+  /api/users/{id}:
+    get:
+      operationId: users_retrieve
+      description: /api/users — user management within the caller's own company.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAdmin'
+          description: ''
+    put:
+      operationId: users_update
+      description: /api/users — user management within the caller's own company.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserAdmin'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserAdmin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserAdmin'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAdmin'
+          description: ''
+    patch:
+      operationId: users_partial_update
+      description: /api/users — user management within the caller's own company.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserAdmin'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserAdmin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserAdmin'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAdmin'
+          description: ''
+    delete:
+      operationId: users_destroy
+      description: /api/users — user management within the caller's own company.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - users
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/validate:
+    post:
+      operationId: validate_create
+      tags:
+      - validate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/validate-oman:
+    post:
+      operationId: validate_oman_create
+      tags:
+      - validate-oman
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+  /api/vat-groups:
+    get:
+      operationId: vat_groups_retrieve
+      tags:
+      - vat-groups
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+    post:
+      operationId: vat_groups_create
+      tags:
+      - vat-groups
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GenericApi'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericApi'
+          description: ''
+components:
+  schemas:
+    CompanyGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 120
+        group_vatin:
+          type: string
+          maxLength: 14
+      required:
+      - group_vatin
+      - id
+      - name
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        vatin:
+          type: string
+          maxLength: 14
+        peppol_endpoint:
+          type: string
+          maxLength: 30
+        is_walkin:
+          type: boolean
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        phone:
+          type: string
+          maxLength: 20
+        billing_address:
+          type: string
+          maxLength: 255
+        city:
+          type: string
+          maxLength: 60
+        postal_code:
+          type: string
+          maxLength: 10
+        country_code:
+          type: string
+          maxLength: 2
+        company:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - company
+      - created_at
+      - id
+      - name
+      - updated_at
+    DirectionEnum:
+      enum:
+      - AR
+      - AP
+      type: string
+      description: |-
+        * `AR` - AR / Sales
+        * `AP` - AP / Purchase
+    DocTypeEnum:
+      enum:
+      - '380'
+      - '381'
+      - '383'
+      - '389'
+      - '261'
+      type: string
+      description: |-
+        * `380` - Standard Tax Invoice
+        * `381` - Credit Note
+        * `383` - Debit Note
+        * `389` - Self-Billed Invoice
+        * `261` - Self-Billed Credit Note
+    Document:
+      type: object
+      description: Full internal representation with writable nested lines. Persists
+        via recompute_totals.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        direction:
+          $ref: '#/components/schemas/DirectionEnum'
+        document_type:
+          $ref: '#/components/schemas/DocumentTypeEnum'
+        doc_type:
+          allOf:
+          - $ref: '#/components/schemas/DocTypeEnum'
+          readOnly: true
+        is_b2c:
+          type: boolean
+          readOnly: true
+        is_export:
+          type: boolean
+        invoice_number:
+          type: string
+          maxLength: 40
+        uuid_v5:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        transaction_type_code:
+          type: string
+          maxLength: 20
+        issue_date:
+          type: string
+          format: date
+        issue_time:
+          type: string
+          format: time
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        tax_point_date:
+          type: string
+          format: date
+          nullable: true
+        customer:
+          type: string
+          format: uuid
+          nullable: true
+        counterparty_name:
+          type: string
+          maxLength: 200
+        counterparty_vatin:
+          type: string
+          maxLength: 14
+        counterparty_endpoint:
+          type: string
+          maxLength: 30
+        currency:
+          type: string
+          maxLength: 3
+        line_extension_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        allowance_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+        charge_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+        tax_exclusive_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        tax_inclusive_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        payable_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        payment_means_code:
+          $ref: '#/components/schemas/PaymentMeansCodeEnum'
+        payment_iban:
+          type: string
+          maxLength: 34
+        payment_terms:
+          type: string
+          maxLength: 200
+        status:
+          $ref: '#/components/schemas/DocumentStatusEnum'
+        billing_reference:
+          type: string
+          format: uuid
+          nullable: true
+        source:
+          $ref: '#/components/schemas/SourceEnum'
+        notes:
+          type: string
+          maxLength: 255
+        ap_status:
+          type: string
+          maxLength: 40
+        erp_system:
+          type: string
+          maxLength: 40
+        extra_data: {}
+        company:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentLine'
+      required:
+      - company
+      - created_at
+      - direction
+      - doc_type
+      - id
+      - invoice_number
+      - is_b2c
+      - issue_date
+      - issue_time
+      - line_extension_amount
+      - lines
+      - payable_amount
+      - tax_amount
+      - tax_exclusive_amount
+      - tax_inclusive_amount
+      - updated_at
+      - uuid_v5
+    DocumentLine:
+      type: object
+      properties:
+        line_id:
+          type: integer
+          maximum: 32767
+          minimum: 0
+        item_name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 255
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,9}(?:\.\d{0,3})?$
+        unit_code:
+          type: string
+          maxLength: 6
+        unit_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+        discount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+        vat_category:
+          $ref: '#/components/schemas/VatCategoryEnum'
+        vat_rate:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,2})?$
+        line_net:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+      required:
+      - item_name
+      - line_id
+      - line_net
+    DocumentStatusEnum:
+      enum:
+      - DRAFT
+      - VALIDATED
+      - PENDING
+      - SUBMITTED
+      - SENT
+      - REPORTED
+      - REJECTED
+      - CANCELLED
+      type: string
+      description: |-
+        * `DRAFT` - Draft
+        * `VALIDATED` - Validated
+        * `PENDING` - Pending
+        * `SUBMITTED` - Submitted
+        * `SENT` - Sent
+        * `REPORTED` - Reported
+        * `REJECTED` - Rejected
+        * `CANCELLED` - Cancelled
+    DocumentType:
+      type: object
+      properties:
+        key:
+          type: string
+        code:
+          type: string
+        label:
+          type: string
+        sublabel:
+          type: string
+        is_b2c:
+          type: boolean
+        direction_hint:
+          type: string
+      required:
+      - code
+      - direction_hint
+      - is_b2c
+      - key
+      - label
+      - sublabel
+    DocumentTypeEnum:
+      enum:
+      - STANDARD_380
+      - SIMPLIFIED_B2C
+      - CREDIT_NOTE_381
+      - DEBIT_NOTE_383
+      - SELF_BILLED_389
+      - SELF_BILLED_CN_261
+      type: string
+      description: |-
+        * `STANDARD_380` - Standard Tax Invoice
+        * `SIMPLIFIED_B2C` - Simplified Tax Invoice
+        * `CREDIT_NOTE_381` - Credit Note
+        * `DEBIT_NOTE_383` - Debit Note
+        * `SELF_BILLED_389` - Self-Billed Invoice
+        * `SELF_BILLED_CN_261` - Self-Billed Credit Note
+    Entity:
+      type: object
+      description: 'Matches faturathi-ui''s /api/entities contract: id, name, vatin,
+        pid, prefixes[], status.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+        nameAr:
+          type: string
+        vatin:
+          type: string
+        pid:
+          type: string
+        prefixes: {}
+        status:
+          type: string
+          readOnly: true
+        short_code:
+          type: string
+          maxLength: 4
+        entity_type:
+          $ref: '#/components/schemas/EntityTypeEnum'
+        crNum:
+          type: string
+        branchId:
+          type: string
+        address:
+          type: string
+          maxLength: 255
+        city:
+          type: string
+          maxLength: 60
+        email:
+          oneOf:
+          - type: string
+            format: email
+          - type: string
+            maxLength: 0
+        phone:
+          type: string
+        invoicePrefix:
+          type: string
+        invoiceSuffix:
+          type: string
+        creditNoteSuffix:
+          type: string
+        is_active:
+          type: boolean
+      required:
+      - crNum
+      - id
+      - name
+      - status
+      - vatin
+    EntityTypeEnum:
+      enum:
+      - HQ
+      - SUBSIDIARY
+      - BRANCH
+      type: string
+      description: |-
+        * `HQ` - HQ
+        * `SUBSIDIARY` - Subsidiary
+        * `BRANCH` - Branch
+    GenericApi:
+      type: object
+      properties:
+        status:
+          type: string
+        detail:
+          type: string
+        message:
+          type: string
+    LevelEnum:
+      enum:
+      - INFO
+      - WARNING
+      - ERROR
+      type: string
+      description: |-
+        * `INFO` - Info
+        * `WARNING` - Warning
+        * `ERROR` - Error
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+    MfaRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        otp:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - otp
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 140
+        message:
+          type: string
+        level:
+          $ref: '#/components/schemas/LevelEnum'
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - title
+      - user
+    PaginatedCompanyGroupList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyGroup'
+    PaginatedCustomerList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Customer'
+    PaginatedEntityList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entity'
+    PaginatedNotificationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+    PaginatedSystemLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SystemLog'
+    PaginatedTransmissionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transmission'
+    PaginatedUserAdminList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserAdmin'
+    PatchedCompanyGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 120
+        group_vatin:
+          type: string
+          maxLength: 14
+    PatchedCustomer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        vatin:
+          type: string
+          maxLength: 14
+        peppol_endpoint:
+          type: string
+          maxLength: 30
+        is_walkin:
+          type: boolean
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        phone:
+          type: string
+          maxLength: 20
+        billing_address:
+          type: string
+          maxLength: 255
+        city:
+          type: string
+          maxLength: 60
+        postal_code:
+          type: string
+          maxLength: 10
+        country_code:
+          type: string
+          maxLength: 2
+        company:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedDocument:
+      type: object
+      description: Full internal representation with writable nested lines. Persists
+        via recompute_totals.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        direction:
+          $ref: '#/components/schemas/DirectionEnum'
+        document_type:
+          $ref: '#/components/schemas/DocumentTypeEnum'
+        doc_type:
+          allOf:
+          - $ref: '#/components/schemas/DocTypeEnum'
+          readOnly: true
+        is_b2c:
+          type: boolean
+          readOnly: true
+        is_export:
+          type: boolean
+        invoice_number:
+          type: string
+          maxLength: 40
+        uuid_v5:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        transaction_type_code:
+          type: string
+          maxLength: 20
+        issue_date:
+          type: string
+          format: date
+        issue_time:
+          type: string
+          format: time
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        tax_point_date:
+          type: string
+          format: date
+          nullable: true
+        customer:
+          type: string
+          format: uuid
+          nullable: true
+        counterparty_name:
+          type: string
+          maxLength: 200
+        counterparty_vatin:
+          type: string
+          maxLength: 14
+        counterparty_endpoint:
+          type: string
+          maxLength: 30
+        currency:
+          type: string
+          maxLength: 3
+        line_extension_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        allowance_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+        charge_total:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+        tax_exclusive_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        tax_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        tax_inclusive_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        payable_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,11}(?:\.\d{0,3})?$
+          readOnly: true
+        payment_means_code:
+          $ref: '#/components/schemas/PaymentMeansCodeEnum'
+        payment_iban:
+          type: string
+          maxLength: 34
+        payment_terms:
+          type: string
+          maxLength: 200
+        status:
+          $ref: '#/components/schemas/DocumentStatusEnum'
+        billing_reference:
+          type: string
+          format: uuid
+          nullable: true
+        source:
+          $ref: '#/components/schemas/SourceEnum'
+        notes:
+          type: string
+          maxLength: 255
+        ap_status:
+          type: string
+          maxLength: 40
+        erp_system:
+          type: string
+          maxLength: 40
+        extra_data: {}
+        company:
+          type: string
+          format: uuid
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentLine'
+    PatchedEntity:
+      type: object
+      description: 'Matches faturathi-ui''s /api/entities contract: id, name, vatin,
+        pid, prefixes[], status.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+        nameAr:
+          type: string
+        vatin:
+          type: string
+        pid:
+          type: string
+        prefixes: {}
+        status:
+          type: string
+          readOnly: true
+        short_code:
+          type: string
+          maxLength: 4
+        entity_type:
+          $ref: '#/components/schemas/EntityTypeEnum'
+        crNum:
+          type: string
+        branchId:
+          type: string
+        address:
+          type: string
+          maxLength: 255
+        city:
+          type: string
+          maxLength: 60
+        email:
+          oneOf:
+          - type: string
+            format: email
+          - type: string
+            maxLength: 0
+        phone:
+          type: string
+        invoicePrefix:
+          type: string
+        invoiceSuffix:
+          type: string
+        creditNoteSuffix:
+          type: string
+        is_active:
+          type: boolean
+    PatchedNotification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 140
+        message:
+          type: string
+        level:
+          $ref: '#/components/schemas/LevelEnum'
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedSystemConfig:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        country:
+          type: string
+          maxLength: 2
+        timezone:
+          type: string
+          maxLength: 40
+        base_currency:
+          type: string
+          maxLength: 3
+        fx_rate_usd:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,4})?$
+        language_mode:
+          type: string
+          maxLength: 20
+        mfa_enforced:
+          type: boolean
+        security_alerts:
+          type: boolean
+        admin_alerts:
+          type: boolean
+        allow_user_logins:
+          type: boolean
+        backup_retention_years:
+          type: integer
+          maximum: 32767
+          minimum: 0
+        maintenance_window:
+          type: string
+          maxLength: 40
+        webhook_url:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 200
+          - type: string
+            maxLength: 0
+        admin_alert_contact:
+          type: string
+          maxLength: 120
+        master_api_key:
+          type: string
+          readOnly: true
+    PatchedUserAdmin:
+      type: object
+      description: 'Matches faturathi-ui''s /api/users contract: id, email, role,
+        branch, mfa, status.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        branch:
+          type: string
+          maxLength: 80
+        mfa:
+          type: boolean
+        status:
+          type: string
+          readOnly: true
+        designation:
+          type: string
+          maxLength: 80
+        phone:
+          type: string
+          maxLength: 20
+        company:
+          type: string
+          format: uuid
+          nullable: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        password:
+          type: string
+          writeOnly: true
+          maxLength: 128
+    PaymentMeansCodeEnum:
+      enum:
+      - '10'
+      - '30'
+      type: string
+      description: |-
+        * `10` - Cash
+        * `30` - Credit Transfer
+    RoleEnum:
+      enum:
+      - SUPERADMIN
+      - ADMIN
+      - MAKER
+      - APPROVER
+      - VIEWER
+      type: string
+      description: |-
+        * `SUPERADMIN` - Super Admin
+        * `ADMIN` - Admin
+        * `MAKER` - Maker
+        * `APPROVER` - Approver
+        * `VIEWER` - Viewer
+    SourceEnum:
+      enum:
+      - MANUAL
+      - REST_API
+      - BATCH
+      - SFTP
+      - ERP
+      - AP_INBOUND
+      type: string
+      description: |-
+        * `MANUAL` - Manual Entry
+        * `REST_API` - REST API
+        * `BATCH` - File Upload
+        * `SFTP` - SFTP Sync
+        * `ERP` - ERP Integration
+        * `AP_INBOUND` - AP Inbound REST API
+    SystemConfig:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        country:
+          type: string
+          maxLength: 2
+        timezone:
+          type: string
+          maxLength: 40
+        base_currency:
+          type: string
+          maxLength: 3
+        fx_rate_usd:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,4})?$
+        language_mode:
+          type: string
+          maxLength: 20
+        mfa_enforced:
+          type: boolean
+        security_alerts:
+          type: boolean
+        admin_alerts:
+          type: boolean
+        allow_user_logins:
+          type: boolean
+        backup_retention_years:
+          type: integer
+          maximum: 32767
+          minimum: 0
+        maintenance_window:
+          type: string
+          maxLength: 40
+        webhook_url:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 200
+          - type: string
+            maxLength: 0
+        admin_alert_contact:
+          type: string
+          maxLength: 120
+        master_api_key:
+          type: string
+          readOnly: true
+      required:
+      - id
+      - master_api_key
+    SystemLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        user_email:
+          type: string
+          readOnly: true
+          default: ''
+        action:
+          type: string
+          readOnly: true
+        entity:
+          type: string
+          readOnly: true
+        entity_id:
+          type: string
+          readOnly: true
+        detail:
+          readOnly: true
+        ip_address:
+          type: string
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - action
+      - created_at
+      - detail
+      - entity
+      - entity_id
+      - id
+      - ip_address
+      - user
+      - user_email
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          writeOnly: true
+      required:
+      - access
+      - refresh
+    Transmission:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        document:
+          type: string
+          format: uuid
+          readOnly: true
+        invoice_number:
+          type: string
+          readOnly: true
+        attempt:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/TransmissionStatusEnum'
+          readOnly: true
+        payload:
+          readOnly: true
+        validation_errors:
+          readOnly: true
+        ota_response_code:
+          type: string
+          readOnly: true
+        ota_message:
+          type: string
+          readOnly: true
+        mls_status:
+          type: string
+          readOnly: true
+        sent_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        acked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        reported_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - acked_at
+      - attempt
+      - created_at
+      - document
+      - id
+      - invoice_number
+      - mls_status
+      - ota_message
+      - ota_response_code
+      - payload
+      - reported_at
+      - sent_at
+      - status
+      - validation_errors
+    TransmissionStatusEnum:
+      enum:
+      - QUEUED
+      - VALIDATING
+      - VALIDATED
+      - AS4_SENT
+      - ACK_RECEIVED
+      - TDD_REPORTED
+      - MLS_RECEIVED
+      - REJECTED
+      type: string
+      description: |-
+        * `QUEUED` - Queued
+        * `VALIDATING` - Validating
+        * `VALIDATED` - Schematron OK
+        * `AS4_SENT` - AS4 Sent (C2→C3)
+        * `ACK_RECEIVED` - Ack Received
+        * `TDD_REPORTED` - TDD Reported (C5)
+        * `MLS_RECEIVED` - MLS Received
+        * `REJECTED` - Rejected
+    UserAdmin:
+      type: object
+      description: 'Matches faturathi-ui''s /api/users contract: id, email, role,
+        branch, mfa, status.'
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        branch:
+          type: string
+          maxLength: 80
+        mfa:
+          type: boolean
+        status:
+          type: string
+          readOnly: true
+        designation:
+          type: string
+          maxLength: 80
+        phone:
+          type: string
+          maxLength: 20
+        company:
+          type: string
+          format: uuid
+          nullable: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        password:
+          type: string
+          writeOnly: true
+          maxLength: 128
+      required:
+      - email
+      - id
+      - status
+    VatCategoryEnum:
+      enum:
+      - S
+      - Z
+      - E
+      type: string
+      description: |-
+        * `S` - Standard 5%
+        * `Z` - Zero
+        * `E` - Exempt
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

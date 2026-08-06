@@ -1,0 +1,115 @@
+from datetime import timedelta
+
+from django.db.models import Q, Sum
+from django.utils import timezone
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.documents.compat import to_compat
+from apps.documents.models import Document
+from apps.utils.constants import VAT_CATEGORIES
+from apps.utils.helpers import csv_export
+from apps.utils.openapi import GenericApiSerializer
+
+PENDING_STATUSES = ["DRAFT", "VALIDATED", "PENDING", "SUBMITTED"]
+
+
+class DashboardView(APIView):
+    serializer_class = GenericApiSerializer
+    """GET /api/reports/dashboard/ — counts + AR/AP totals for the active tenant scope."""
+
+    def get(self, request):
+        qs = Document.objects.filter(company_id__in=request.active_company_ids)
+        since_24h = timezone.now() - timedelta(hours=24)
+
+        totals = qs.aggregate(
+            ar_total=Sum("tax_inclusive_amount", filter=Q(direction="AR")),
+            ap_total=Sum("tax_inclusive_amount", filter=Q(direction="AP")),
+        )
+
+        return Response({
+            "total_invoices": qs.count(),
+            "validated_lt_24h": qs.filter(status="REPORTED", updated_at__gte=since_24h).count(),
+            "verified_gt_24h": qs.filter(status="REPORTED", updated_at__lt=since_24h).count(),
+            "pending": qs.filter(status__in=PENDING_STATUSES).count(),
+            "rejected": qs.filter(status="REJECTED").count(),
+            "cancelled": qs.filter(status="CANCELLED").count(),
+            "ar_total": float(totals["ar_total"] or 0),
+            "ap_total": float(totals["ap_total"] or 0),
+            "currency": "OMR",
+        })
+
+
+def _filtered_queryset(request):
+    qs = Document.objects.filter(company_id__in=request.active_company_ids).prefetch_related("lines")
+    params = request.query_params
+    if params.get("dir"):
+        qs = qs.filter(direction=params["dir"])
+    if params.get("status"):
+        qs = qs.filter(status=params["status"])
+    if params.get("doc_type"):
+        qs = qs.filter(doc_type=params["doc_type"])
+    if params.get("date_from"):
+        qs = qs.filter(issue_date__gte=params["date_from"])
+    if params.get("date_to"):
+        qs = qs.filter(issue_date__lte=params["date_to"])
+    search = params.get("search")
+    if search:
+        qs = qs.filter(
+            Q(invoice_number__icontains=search) | Q(counterparty_name__icontains=search)
+            | Q(counterparty_vatin__icontains=search))
+    return qs
+
+
+def _grid_row(document) -> dict:
+    compat_row = to_compat(document)
+    return {
+        "id": compat_row["id"],
+        "invoice_number": compat_row["n"],
+        "date": compat_row["d"],
+        "time": compat_row["t"],
+        "direction": document.direction,
+        "type": compat_row["type"],
+        "counterparty": compat_row["cp"],
+        "counterparty_vatin": compat_row["cpv"],
+        "net": compat_row["net"],
+        "vat": compat_row["vat"],
+        "total": round(compat_row["net"] + compat_row["vat"], 3),
+        "status": compat_row["st"],
+        "tdd": compat_row["tdd"],
+        "error": compat_row["err"],
+        "uuid": compat_row["uuid"],
+    }
+
+
+class TaxGridView(APIView):
+    serializer_class = GenericApiSerializer
+    """GET /api/reports/tax-grid/ — invoice rows for the Standard Tax Report Data Grid."""
+
+    def get(self, request):
+        qs = _filtered_queryset(request)
+        return Response([_grid_row(d) for d in qs])
+
+
+class TaxGridExportView(APIView):
+    serializer_class = GenericApiSerializer
+    """GET /api/reports/tax-grid/export/?format=csv"""
+
+    def get(self, request):
+        qs = _filtered_queryset(request)
+        rows = [_grid_row(d) for d in qs]
+        fieldnames = ["invoice_number", "date", "type", "counterparty", "counterparty_vatin",
+                      "net", "vat", "total", "status", "tdd"]
+        return csv_export("tax-grid.csv", fieldnames, rows)
+
+
+class VatGroupsView(APIView):
+    serializer_class = GenericApiSerializer
+    """GET/POST /api/vat-groups — VAT RATE CATEGORIES (S 5% / Z 0% / E Exempt), not company groups."""
+
+    def get(self, request):
+        return Response(VAT_CATEGORIES)
+
+    def post(self, request):
+        # Demo-only: master data is hardcoded; accept the POST but don't persist a new category.
+        return Response({**request.data, "status": "Active"}, status=201)

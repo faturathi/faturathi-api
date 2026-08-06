@@ -1,0 +1,79 @@
+name: Deploy backend to Elastic Beanstalk
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: elastic-beanstalk-production
+  cancel-in-progress: false
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: fathurathi
+          POSTGRES_USER: fathurathi
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fathurathi -d fathurathi"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_NAME: fathurathi
+      DB_USER: fathurathi
+      DB_PASSWORD: test-password
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      SECRET_KEY: ci-only-not-used-in-production
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      SECURE_SSL_REDIRECT: "False"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check migrations and run tests
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+          python manage.py test
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Deploy application version
+        uses: aws-actions/aws-elasticbeanstalk-deploy@v1.0.4
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          application-name: ${{ vars.EB_APPLICATION_NAME }}
+          environment-name: ${{ vars.EB_ENVIRONMENT_NAME }}
+          exclude-patterns: "venv/**,.venv/**,.env,staticfiles/**,media/**,outputs/**,.git/**"
