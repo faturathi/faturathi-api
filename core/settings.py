@@ -39,10 +39,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
+    "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt",
-    "corsheaders",
     "django_filters",
     "drf_spectacular",
     "drf_spectacular_sidecar",
@@ -63,11 +62,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    (
-        "core.middleware.TrustAllOriginsCsrfViewMiddleware"
-        if CSRF_TRUST_ALL_ORIGINS
-        else "django.middleware.csrf.CsrfViewMiddleware"
-    ),
+    "core.middleware.TrustAllOriginsCsrfViewMiddleware"
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -223,7 +218,7 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOWED_ORIGINS = []
+CORS_ALLOWED_ORIGINS = ["*"]
 # Every entry must include a scheme. The custom CSRF middleware accepts all
 # other Origin values as well, while retaining Django's CSRF-token validation.
 CSRF_TRUSTED_ORIGINS = [
