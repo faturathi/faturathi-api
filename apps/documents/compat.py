@@ -51,6 +51,17 @@ def _resolve_document_type_key(payload: dict) -> str:
             return key
     if bool(payload.get("b2c")):
         return "SIMPLIFIED_B2C"
+    # No explicit type signal anywhere in the payload: infer B2C when the counterparty has
+    # neither a VATIN nor a Peppol endpoint (a genuine walk-in/cash customer or an ERP payload,
+    # e.g. Tally-style vouchers, that simply has no such concept) instead of silently defaulting
+    # to B2B and then rejecting the document for a "missing" EAS it was never going to have.
+    buyer = payload.get("BuyerDetails") or {}
+    has_vatin = bool(payload.get("cpv") or payload.get("counterparty_vatin")
+                      or payload.get("IBT_048_BuyerVATIdentifier") or buyer.get("IBT_048_BuyerVATIdentifier"))
+    has_endpoint = bool(payload.get("eas") or payload.get("counterparty_endpoint")
+                         or payload.get("IBT_049_BuyerElectronicAddress") or buyer.get("IBT_049_BuyerElectronicAddress"))
+    if not has_vatin and not has_endpoint:
+        return "SIMPLIFIED_B2C"
     return "STANDARD_380"
 
 
@@ -58,6 +69,31 @@ def _numeric(value, default="0") -> str:
     """Accept ERP/display values such as '1,250.000 OMR' at the API boundary."""
     cleaned = re.sub(r"[^0-9.\-]", "", str(value if value is not None else default).replace(",", ""))
     return cleaned or default
+
+
+def _leading_number(value, default="0") -> str:
+    """Pull the leading numeric token out of free-text ERP fields, e.g. '1 Nos' -> '1',
+    '145000.00 INR/Nos' -> '145000.00'."""
+    match = re.search(r"[-+]?\d[\d,]*\.?\d*", str(value if value is not None else ""))
+    return match.group(0).replace(",", "") if match else default
+
+
+def _tally_inventory_lines(entries: list) -> list[dict]:
+    """Maps Tally-style `InventoryEntriesList` rows (ItemName/BilledQuantity/Rate/Amount) to the
+    same raw-line shape the rest of build_document_payload already understands."""
+    lines = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        qty = _leading_number(entry.get("BilledQuantity"), "1")
+        price = _leading_number(entry.get("Rate"), None) or _leading_number(entry.get("Amount"), "0")
+        lines.append({
+            "name": entry.get("ItemName") or "Line item",
+            "qty": qty,
+            "price": price,
+            "cat": "S 5%",
+        })
+    return lines
 
 
 def _doc_type_label(document) -> str:
@@ -156,18 +192,23 @@ def build_document_payload(payload: dict, direction: str = "AR") -> dict:
         ref = payload.get("cn") or payload.get("billing_reference") or payload.get("cn_ref")
         notes = f"Adjustment reference: {ref}" if ref else "Adjustment / correction to a prior invoice."
 
-    raw_lines = payload.get("lines") or ([{
-        "name": line.get("IBT_153_ItemName"), "qty": line.get("IBT_129_InvoicedQuantity"),
-        "price": line.get("IBT_146_ItemNetPrice"), "cat": line.get("IBT_151_ItemVATCategoryCode"),
-        "unit": line.get("IBT_130_InvoicedQuantityUnitCode", "EA"),
-        "discount": line.get("IBT_149_ItemPriceDiscount", 0),
-        "description": line.get("IBT_154_ItemDescription", ""),
-    } for line in pint_lines] if pint_lines else [[
-        payload.get("itemName") or payload.get("item_name") or "Line item 1",
-        payload.get("qty") or payload.get("quantity") or 1,
-        payload.get("price") or payload.get("unit_price") or str(net),
-        cat_label,
-    ]])
+    tally_entries = payload.get("InventoryEntriesList")
+    raw_lines = payload.get("lines") or (
+        [{
+            "name": line.get("IBT_153_ItemName"), "qty": line.get("IBT_129_InvoicedQuantity"),
+            "price": line.get("IBT_146_ItemNetPrice"), "cat": line.get("IBT_151_ItemVATCategoryCode"),
+            "unit": line.get("IBT_130_InvoicedQuantityUnitCode", "EA"),
+            "discount": line.get("IBT_149_ItemPriceDiscount", 0),
+            "description": line.get("IBT_154_ItemDescription", ""),
+        } for line in pint_lines] if pint_lines
+        else _tally_inventory_lines(tally_entries) if tally_entries
+        else [[
+            payload.get("itemName") or payload.get("item_name") or "Line item 1",
+            payload.get("qty") or payload.get("quantity") or 1,
+            payload.get("price") or payload.get("unit_price") or str(net),
+            cat_label,
+        ]]
+    )
     lines = []
     for idx, line in enumerate(raw_lines, start=1):
         if isinstance(line, dict):
@@ -196,17 +237,18 @@ def build_document_payload(payload: dict, direction: str = "AR") -> dict:
         "direction": direction,
         "document_type": document_type_key,
         "invoice_number": (payload.get("n") or payload.get("invoiceNumber") or payload.get("invoice_number")
-                           or payload.get("IBT_001_InvoiceNumber")
+                           or payload.get("IBT_001_InvoiceNumber") or payload.get("VoucherNumber")
                            or f"INV-2026-{random.randint(1000, 9999)}"),
         "issue_date": (payload.get("d") or payload.get("date") or payload.get("issue_date")
-                       or payload.get("IBT_002_InvoiceIssueDate")
+                       or payload.get("IBT_002_InvoiceIssueDate") or payload.get("VoucherDate")
                        or timezone.localdate().isoformat()),
         "issue_time": payload.get("t") or payload.get("issue_time") or payload.get("IBT_168_InvoiceIssueTime") or "12:00:00",
         "due_date": payload.get("due_date") or payload.get("IBT_009_PaymentDueDate") or payment.get("IBT_009_PaymentDueDate") or None,
         "tax_point_date": payload.get("tax_point_date") or payload.get("IBT_007_TaxPointDate") or None,
         "transaction_type_code": payload.get("tt") or payload.get("BTOM_001_OmanTransactionType") or _DEFAULT_TT_BY_DOCUMENT_TYPE[document_type_key],
         "counterparty_name": (payload.get("cp") or payload.get("customerName")
-                               or payload.get("counterparty_name") or payload.get("IBT_044_BuyerName") or buyer.get("IBT_044_BuyerName") or ""),
+                               or payload.get("counterparty_name") or payload.get("IBT_044_BuyerName") or buyer.get("IBT_044_BuyerName")
+                               or payload.get("PartyName") or ""),
         "counterparty_vatin": payload.get("cpv") or payload.get("counterparty_vatin") or payload.get("IBT_048_BuyerVATIdentifier") or buyer.get("IBT_048_BuyerVATIdentifier") or "",
         "counterparty_endpoint": (payload.get("eas") or payload.get("counterparty_endpoint")
                                   or payload.get("IBT_049_BuyerElectronicAddress") or buyer.get("IBT_049_BuyerElectronicAddress") or (B2C_DUMMY if is_b2c else "")),

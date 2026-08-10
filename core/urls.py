@@ -5,21 +5,28 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, Spec
 
 from apps.config.views import ResetSeedsView
 
-urlpatterns = [
-    path("api/health", lambda request: JsonResponse({"status": "ok"}), name="health"),
-    path("api/schema", SpectacularAPIView.as_view(), name="openapi-schema"),
-    path("api/docs", SpectacularSwaggerView.as_view(url_name="openapi-schema"), name="swagger-ui"),
-    path("api/redoc", SpectacularRedocView.as_view(url_name="openapi-schema"), name="redoc"),
-    path("admin/", admin.site.urls),
+# Shared urlconf mounted at both /api/v1/ (current) and /api/ (back-compat alias for existing
+# integrations, e.g. faturathi-billing desktop app configs pointing at the old unversioned path).
+api_patterns = [
+    path("health", lambda request: JsonResponse({"status": "ok"}), name="health"),
+    path("schema", SpectacularAPIView.as_view(), name="openapi-schema"),
+    path("docs", SpectacularSwaggerView.as_view(url_name="openapi-schema"), name="swagger-ui"),
+    path("redoc", SpectacularRedocView.as_view(url_name="openapi-schema"), name="redoc"),
 
-    path("api/", include("apps.user.urls")),
-    path("api/", include("apps.company.urls")),
-    path("api/", include("apps.documents.urls")),
-    path("api/", include("apps.peppol.urls")),
-    path("api/", include("apps.config.urls")),
-    path("api/", include("apps.reports.urls")),
+    path("", include("apps.user.urls")),
+    path("", include("apps.company.urls")),
+    path("", include("apps.documents.urls")),
+    path("", include("apps.peppol.urls")),
+    path("", include("apps.config.urls")),
+    path("", include("apps.reports.urls")),
 
     # thin aliases (server.ts compatibility, see Addendum v1.1 section B)
-    path("api/reset-db", ResetSeedsView.as_view(), name="reset-db"),
-    path("api/clear", ResetSeedsView.as_view(), name="clear"),
+    path("reset-db", ResetSeedsView.as_view(), name="reset-db"),
+    path("clear", ResetSeedsView.as_view(), name="clear"),
+]
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("api/v1/", include(api_patterns)),
+    path("api/", include(api_patterns)),
 ]

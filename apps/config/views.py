@@ -87,6 +87,24 @@ class ApiCredentialView(APIView):
         }, status=201)
 
 
+class WhoAmIView(APIView):
+    """GET /api/config/whoami — lightweight authenticated identity check. Used by client "Test
+    Connection" buttons (desktop app Settings, ERP connectors) to validate an API key/bearer
+    token against the live server before saving it, without depending on any business endpoint."""
+
+    serializer_class = GenericApiSerializer
+
+    def get(self, request):
+        company = request.active_company or getattr(request.user, "company", None)
+        return Response({
+            "status": "ok",
+            "user": request.user.email,
+            "company": company.name_en if company else None,
+            "vatNumber": company.vat_number if company else None,
+            "crNumber": company.cr_number if company else None,
+        })
+
+
 class ResetSeedsView(APIView):
     """POST /api/config/reset-seeds/ (aliased at /api/reset-db, /api/clear) — wipes + reseeds demo data."""
 

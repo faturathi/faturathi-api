@@ -1,5 +1,6 @@
 import csv
 import io
+import uuid
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -28,6 +29,25 @@ try:
     import openpyxl
 except ImportError:
     openpyxl = None
+
+
+# Normalized AP approval-pool states (item 3/1e). `ap_status` was previously free text set only
+# by `approve`; this keys it so the GET list filter (used by external ERP/desktop pull clients,
+# item 2/4) can reliably select "the approved pool" instead of substring-matching display labels.
+AP_STATUS_LABELS = {
+    "pending": "Pending Approver Review",
+    "approved": "Approved · posted to ERP",
+    "query": "On Hold Query",
+    "rejected": "Rejected by Approver",
+}
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 def _resolve_billing_reference(queryset, doc_payload: dict) -> dict:
@@ -75,6 +95,19 @@ class InvoiceViewSet(viewsets.ViewSet):
         doc_type = request.query_params.get("doc_type")
         if doc_type:
             qs = qs.filter(doc_type=doc_type)
+        ap_status = request.query_params.get("ap_status")
+        if ap_status:
+            label = AP_STATUS_LABELS.get(ap_status.lower())
+            qs = qs.filter(ap_status=label) if label else qs.filter(ap_status__icontains=ap_status)
+        cpv = request.query_params.get("cpv") or request.query_params.get("counterparty_vatin")
+        if cpv:
+            qs = qs.filter(counterparty_vatin=cpv)
+        cr_number = request.query_params.get("cr_number")
+        if cr_number:
+            qs = qs.filter(company__cr_number=cr_number)
+        uuid_param = request.query_params.get("uuid")
+        if uuid_param:
+            qs = qs.filter(uuid_v5=uuid_param) if _is_uuid(uuid_param) else qs.none()
         search = request.query_params.get("search")
         if search:
             qs = qs.filter(
@@ -188,10 +221,36 @@ class InvoiceViewSet(viewsets.ViewSet):
     @action(detail=True, methods=["post"])
     def approve(self, request, invoice_number=None):
         doc = self.get_document(invoice_number)
-        doc.ap_status = "Approved · posted to ERP"
+        doc.ap_status = AP_STATUS_LABELS["approved"]
         doc.save(update_fields=["ap_status"])
         config_services.log(request, "AP_APPROVE", entity="Document", entity_id=doc.invoice_number)
-        return Response({"status": "approved", "id": invoice_number})
+        return Response({"status": "approved", "id": invoice_number, "ap_status": doc.ap_status})
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, invoice_number=None):
+        doc = self.get_document(invoice_number)
+        doc.ap_status = AP_STATUS_LABELS["rejected"]
+        note = request.data.get("notes") or request.data.get("reason")
+        if note:
+            doc.notes = note
+            doc.save(update_fields=["ap_status", "notes"])
+        else:
+            doc.save(update_fields=["ap_status"])
+        config_services.log(request, "AP_REJECT", entity="Document", entity_id=doc.invoice_number)
+        return Response({"status": "rejected", "id": invoice_number, "ap_status": doc.ap_status})
+
+    @action(detail=True, methods=["post"])
+    def query(self, request, invoice_number=None):
+        doc = self.get_document(invoice_number)
+        doc.ap_status = AP_STATUS_LABELS["query"]
+        note = request.data.get("notes") or request.data.get("reason")
+        if note:
+            doc.notes = note
+            doc.save(update_fields=["ap_status", "notes"])
+        else:
+            doc.save(update_fields=["ap_status"])
+        config_services.log(request, "AP_QUERY", entity="Document", entity_id=doc.invoice_number)
+        return Response({"status": "query", "id": invoice_number, "ap_status": doc.ap_status})
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, invoice_number=None):
@@ -334,6 +393,11 @@ class BatchFileUploadView(APIView):
             rows = _group_flat_rows(self._parse_rows(file_obj))
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:  # corrupt/mismatched file content (bad zip, decode errors, ...)
+            return Response(
+                {"detail": f"'{file_obj.name}' could not be read: {exc}. "
+                            "Check that the file is a genuine, uncorrupted .csv or .xlsx export."},
+                status=status.HTTP_400_BAD_REQUEST)
 
         company = resolve_write_company(request, {})
         queryset = Document.objects.filter(company_id__in=request.active_company_ids)
@@ -350,6 +414,13 @@ class BatchFileUploadView(APIView):
         if name.endswith(".xlsx"):
             if openpyxl is None:
                 raise ValueError("Server is missing the openpyxl package required to read .xlsx files.")
+            header = file_obj.read(4)
+            file_obj.seek(0)
+            if header[:2] != b"PK":
+                raise ValueError(
+                    f"'{file_obj.name}' does not look like a real .xlsx file (wrong file signature) "
+                    "— it may be renamed from a different file type. Re-export a genuine Excel file, "
+                    "or upload .csv instead.")
             workbook = openpyxl.load_workbook(file_obj, data_only=True)
             sheet = workbook.active
             rows_iter = sheet.iter_rows(values_only=True)
@@ -361,7 +432,16 @@ class BatchFileUploadView(APIView):
                 rows.append({headers[i]: values[i] for i in range(len(headers)) if i < len(values)})
             return rows
 
-        text = file_obj.read().decode("utf-8-sig")
+        if not name.endswith(".csv"):
+            raise ValueError(f"Unsupported file type for '{file_obj.name}'. Upload a .csv or .xlsx file.")
+        try:
+            text = file_obj.read().decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"'{file_obj.name}' is not readable text — it looks like a binary file, not CSV."
+            ) from exc
+        if "\x00" in text:
+            raise ValueError(f"'{file_obj.name}' contains binary data and is not a valid CSV file.")
         reader = csv.DictReader(io.StringIO(text))
         return [row for row in reader if any((v or "").strip() for v in row.values() if v is not None)]
 

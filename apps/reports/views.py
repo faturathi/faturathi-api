@@ -103,6 +103,30 @@ class TaxGridExportView(APIView):
         return csv_export("tax-grid.csv", fieldnames, rows)
 
 
+class ArchiveExportView(APIView):
+    serializer_class = GenericApiSerializer
+    """GET /api/reports/archive/export?date_from=&date_to= — CSV export over the full retained
+    history (up to 10 years back), for the Reports & Archive UI's archive/backup controls."""
+
+    MAX_YEARS_BACK = 10
+
+    def get(self, request):
+        today = timezone.localdate()
+        earliest_allowed = today.replace(year=today.year - self.MAX_YEARS_BACK)
+        date_from = request.query_params.get("date_from") or earliest_allowed.isoformat()
+        date_to = request.query_params.get("date_to") or today.isoformat()
+        if date_from < earliest_allowed.isoformat():
+            date_from = earliest_allowed.isoformat()
+
+        qs = (Document.objects.filter(company_id__in=request.active_company_ids)
+              .filter(issue_date__gte=date_from, issue_date__lte=date_to)
+              .prefetch_related("lines").order_by("issue_date"))
+        rows = [_grid_row(d) for d in qs]
+        fieldnames = ["invoice_number", "date", "time", "direction", "type", "counterparty",
+                      "counterparty_vatin", "net", "vat", "total", "status", "tdd", "uuid"]
+        return csv_export(f"faturathi-archive-{date_from}_to_{date_to}.csv", fieldnames, rows)
+
+
 class VatGroupsView(APIView):
     serializer_class = GenericApiSerializer
     """GET/POST /api/vat-groups — VAT RATE CATEGORIES (S 5% / Z 0% / E Exempt), not company groups."""

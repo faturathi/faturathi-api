@@ -193,6 +193,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "apps.utils.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "apps.utils.exceptions.faturathi_exception_handler",
 }
 
 SPECTACULAR_SETTINGS = {
@@ -200,7 +201,7 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Tenant-isolated Oman PINT-OM billing, document ingestion, reporting and Peppol lifecycle API.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "SCHEMA_PATH_PREFIX": r"/api",
+    "SCHEMA_PATH_PREFIX": r"/api(/v1)?",
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
     "REDOC_DIST": "SIDECAR",

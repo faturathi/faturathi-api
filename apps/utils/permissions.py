@@ -30,7 +30,7 @@ class CanOperateDocuments(BasePermission):
         if getattr(request.user, "is_superuser", False) or role in {"ADMIN", "SUPERADMIN"}:
             return True
         action = getattr(view, "action", None)
-        if action in {"submit", "approve"}:
+        if action in {"submit", "approve", "reject", "query"}:
             return role == "APPROVER"
         if action in {"create", "partial_update", "destroy", "validate", "resubmit", "cancel", "inbound", "ap_alias"}:
             return role in {"MAKER", "APPROVER"}

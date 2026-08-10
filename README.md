@@ -213,11 +213,18 @@ python manage.py createsuperuser
 Important operational fields are relational for filtering and reports. Long-tail OTA data is stored
 in `Document.extra_data`; the canonical representation is available under `extra_data.pint_om`.
 
+## API versioning
+
+Every endpoint below is mounted at both `/api/v1/...` (current) and the unversioned `/api/...`
+(kept as a permanent alias — both resolve to the identical view, so existing integrations, the
+faturathi-billing desktop app, and any external ERP connector configured against the old path
+keep working without changes). New integrations should target `/api/v1/`.
+
 ## Authentication and Swagger
 
-- OpenAPI schema: `GET /api/schema`
-- Swagger UI: `GET /api/docs`
-- ReDoc: `GET /api/redoc`
+- OpenAPI schema: `GET /api/v1/schema`
+- Swagger UI: `GET /api/v1/docs`
+- ReDoc: `GET /api/v1/redoc`
 
 Swagger uses the SimpleJWT bearer security scheme. Log in, copy the access token, select
 **Authorize**, and enter:
@@ -229,7 +236,7 @@ Bearer <access-token>
 Authentication flow:
 
 ```http
-POST /api/auth/login
+POST /api/v1/auth/login
 Content-Type: application/json
 
 {"email":"salim.h@intel-sol.om","password":"Demo@1234"}
@@ -238,7 +245,7 @@ Content-Type: application/json
 If MFA is required:
 
 ```http
-POST /api/auth/mfa-verify
+POST /api/v1/auth/mfa-verify
 Content-Type: application/json
 
 {"email":"salim.h@intel-sol.om","otp":"582910"}
@@ -247,39 +254,59 @@ Content-Type: application/json
 Protected request:
 
 ```http
-GET /api/invoices
+GET /api/v1/invoices
 Authorization: Bearer <access-token>
 X-Company-ID: E1
+```
+
+Machine-to-machine clients (ERP connectors, the faturathi-billing desktop app) authenticate with
+an API key instead of a user/password login:
+
+```http
+GET /api/v1/invoices
+X-API-KEY: <api-key-from-connectors/credentials>
 ```
 
 ## Principal API endpoints
 
 ### Identity and tenant administration
 
-- `POST /api/auth/login`
-- `POST /api/auth/mfa-verify`
-- `GET /api/auth/me`
-- `GET|POST|PATCH|DELETE /api/users`
-- `GET|POST|PATCH|DELETE /api/entities`
-- `GET|POST|PATCH|DELETE /api/company-groups`
-- `GET|POST|PATCH|DELETE /api/customers`
-- `GET|POST|PATCH /api/notifications`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/mfa-verify`
+- `GET /api/v1/auth/me`
+- `GET|POST|PATCH|DELETE /api/v1/users`
+- `GET|POST|PATCH|DELETE /api/v1/entities`
+- `GET|POST|PATCH|DELETE /api/v1/company-groups`
+- `GET|POST|PATCH|DELETE /api/v1/customers`
+- `GET|POST|PATCH /api/v1/notifications`
 
 ### Documents and ingestion
 
-- `GET|POST /api/invoices`
-- `GET|PATCH|DELETE /api/invoices/{uuid}`
-- `POST /api/invoices/{uuid}/validate`
-- `POST /api/invoices/{uuid}/submit`
-- `POST /api/invoices/{uuid}/resubmit`
-- `POST /api/invoices/{uuid}/approve`
-- `POST /api/invoices/{uuid}/cancel`
-- `GET /api/invoices/{uuid}/pint-payload`
-- `POST /api/invoices/inbound`
-- `GET /api/document-types`
-- `POST /api/upload-batch`
-- `POST /api/upload-batch/file`
-- `POST /api/validate`
+- `GET|POST /api/v1/invoices` — list supports `?dir=AR|AP`, `?status=`, `?doc_type=`,
+  `?ap_status=pending|approved|query|rejected` (normalized AP approval-pool filter),
+  `?cpv=<vatin>` / `?counterparty_vatin=<vatin>`, `?cr_number=<company CR>`, `?uuid=<uuid_v5>`,
+  and free-text `?search=`
+- `GET|PATCH|DELETE /api/v1/invoices/{uuid}`
+- `POST /api/v1/invoices/{uuid}/validate`
+- `POST /api/v1/invoices/{uuid}/submit`
+- `POST /api/v1/invoices/{uuid}/resubmit`
+- `POST /api/v1/invoices/{uuid}/approve` — sets the normalized AP status to `Approved · posted to ERP`
+- `POST /api/v1/invoices/{uuid}/reject` — sets `Rejected by Approver`; accepts an optional `notes`/`reason`
+- `POST /api/v1/invoices/{uuid}/query` — sets `On Hold Query`; accepts an optional `notes`/`reason`
+- `POST /api/v1/invoices/{uuid}/cancel`
+- `GET /api/v1/invoices/{uuid}/pint-payload`
+- `POST /api/v1/invoices/inbound` (aliased `POST /api/v1/invoices/ap`) — AP inbound ingestion
+  (Peppol C2→C3 simulation). Accepts both the PINT-OM/short-key JSON shape used elsewhere and a
+  Tally-style ERP voucher payload (`VoucherNumber`, `VoucherDate`, `PartyName`,
+  `InventoryEntriesList[{ItemName,BilledQuantity,Rate,Amount}]`, `StatutoryDetails`,
+  `TotalAmount`); a counterparty with no VATIN and no Peppol endpoint anywhere in the payload is
+  now auto-detected as B2C instead of being rejected for a "missing" EAS
+- `GET /api/v1/document-types`
+- `POST /api/v1/upload-batch`
+- `POST /api/v1/upload-batch/file` — multipart CSV/XLSX; rejects files whose content doesn't
+  match their extension (wrong signature, binary garbage, unparseable) with a specific message
+  instead of a raw 500
+- `POST /api/v1/validate`
 
 All creation paths produce the same `Document` and `DocumentLine` records. Manual, REST, ERP,
 SFTP, inbound AP, CSV and XLSX documents therefore appear in the same invoice register, reports,
@@ -287,15 +314,33 @@ logs and Peppol workflow.
 
 ### Peppol, reports and operations
 
-- `GET /api/peppol/transmissions`
-- `GET /api/reports/dashboard`
-- `GET /api/reports/tax-grid`
-- `GET /api/reports/tax-grid/export?format=csv`
-- `GET /api/config`
-- `GET /api/config/logs`
-- `GET /api/health`
+- `GET /api/v1/peppol/transmissions`
+- `GET /api/v1/reports/dashboard`
+- `GET /api/v1/reports/tax-grid`
+- `GET /api/v1/reports/tax-grid/export?format=csv`
+- `GET /api/v1/reports/archive/export?date_from=&date_to=` — CSV export over the full retained
+  history, up to 10 years back (defaults to the full 10-year window when both params are omitted)
+- `GET /api/v1/config`
+- `GET /api/v1/config/logs`
+- `GET /api/v1/config/whoami` — lightweight authenticated identity check (returns company
+  name/VATIN/CR for the caller's API key or JWT); used by client "Test Connection" features to
+  validate a key/token before it's saved, without depending on any business endpoint
+- `GET /api/v1/health`
 
 Swagger is the authoritative runtime list of endpoints and request/response schemas.
+
+### Error response shape
+
+Unhandled exceptions and DRF validation errors both come back as a consistent envelope instead of
+a bare Django traceback or an ad hoc shape per view:
+
+```json
+{"error": {"code": "ValidationError", "message": "…human-readable…", "fields": {"…": ["…"]}}}
+```
+
+`fields` is `null` when the error isn't a field-level validation error (e.g. an unhandled server
+error, which always reports `code: "SERVER_ERROR"` with a generic message — the real traceback is
+logged server-side, never returned to the client).
 
 ## User roles
 
