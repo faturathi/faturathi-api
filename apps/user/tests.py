@@ -21,4 +21,25 @@ class UserProvisioningTests(APITestCase):
         self.assertTrue(temporary_password)
         self.assertTrue(User.objects.get(email="new-user@example.com").check_password(temporary_password))
 
+    def test_password_then_demo_otp_returns_reloadable_session(self):
+        company = Company.objects.create(
+            short_code="AUTH", name_en="Auth Company", cr_number="CR-AUTH",
+            vat_number="OM1100000088", peppol_participant_id="0248:OM1100000088")
+        user = User.objects.create_user(
+            "password-user@example.com", "Demo@1234", company=company,
+            role="ADMIN", mfa_enabled=True)
+        login = self.client.post("/api/auth/login", {
+            "email": user.email, "password": "Demo@1234"}, format="json")
+        self.assertEqual(login.status_code, 200)
+        self.assertTrue(login.data["mfa_required"])
+
+        verified = self.client.post("/api/auth/mfa-verify", {
+            "email": user.email, "otp": "582910"}, format="json")
+        self.assertEqual(verified.status_code, 200)
+        self.assertIn("token", verified.data)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {verified.data['token']}")
+        me = self.client.get("/api/auth/me")
+        self.assertEqual(me.status_code, 200)
+        self.assertEqual(me.data["email"], user.email)
+
 # Create your tests here.

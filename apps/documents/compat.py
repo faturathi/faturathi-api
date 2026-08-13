@@ -133,6 +133,18 @@ def to_compat(document) -> dict:
         first = transmission.validation_errors[0]
         err = first.get("message") if isinstance(first, dict) else str(first)
 
+    is_ap = document.direction == "AP"
+    seller_name = document.counterparty_name if is_ap else (document.company.name_en if document.company_id else "")
+    seller_vatin = document.counterparty_vatin if is_ap else (document.company.vat_number if document.company_id else "")
+    buyer_name = (document.company.name_en if document.company_id else "") if is_ap else document.counterparty_name
+    buyer_vatin = (document.company.vat_number if document.company_id else "") if is_ap else document.counterparty_vatin
+    structured_lines = [{
+        "id": str(line.id), "name": line.item_name, "description": line.description,
+        "quantity": float(line.quantity), "unit": line.unit_code,
+        "unitPrice": float(line.unit_price), "discount": float(line.discount),
+        "vatCategory": line.vat_category, "vatRate": float(line.vat_rate),
+        "netAmount": float(line.line_net),
+    } for line in document.lines.all()]
     return {
         "id": str(document.id),
         "n": document.invoice_number,
@@ -154,19 +166,27 @@ def to_compat(document) -> dict:
         "uuid": str(document.uuid_v5) if document.uuid_v5 else None,
         "cat": primary_cat,
         "ent": document.company.short_code if document.company_id else None,
-        "sVat": document.company.vat_number if document.company_id else None,
+        "sName": seller_name,
+        "sVat": seller_vatin,
+        "buyerName": buyer_name,
+        "buyerVat": buyer_vatin,
         "erpSystem": document.erp_system or None,
         "sourceChannel": document.get_source_display(),
         "cn": document.billing_reference.invoice_number if document.billing_reference_id else None,
         "notes": document.notes,
         "validationErrors": transmission.validation_errors if transmission else [],
         "ap": document.ap_status or None,
+        "apStatus": document.ap_status or None,
         "b2c": document.is_b2c,
         "lines": lines,
+        "lineItems": structured_lines,
         "createdAt": document.created_at.isoformat(),
         "source": document.source,
         "createdBy": document.created_by.email if document.created_by_id else None,
         "mlsStatus": transmission.mls_status if transmission else None,
+        "submittedAt": transmission.sent_at.isoformat() if transmission and transmission.sent_at else None,
+        "acknowledgedAt": transmission.acked_at.isoformat() if transmission and transmission.acked_at else None,
+        "reportedAt": transmission.reported_at.isoformat() if transmission and transmission.reported_at else None,
         "extra": document.extra_data or {},
     }
 
@@ -212,7 +232,14 @@ def build_document_payload(payload: dict, direction: str = "AR") -> dict:
     lines = []
     for idx, line in enumerate(raw_lines, start=1):
         if isinstance(line, dict):
-            name, qty, price, line_cat = line.get("name"), line.get("qty"), line.get("price"), line.get("cat")
+            name = line.get("name") or line.get("item_name") or line.get("itemName") or line.get("ItemName") or line.get("IBT_153_ItemName")
+            qty = line.get("qty") or line.get("quantity") or line.get("BilledQuantity") or line.get("IBT_129_InvoicedQuantity")
+            price = line.get("price") or line.get("unit_price") or line.get("unitPrice") or line.get("Rate") or line.get("IBT_146_ItemNetPrice")
+            if price in (None, "") and (line.get("amount") is not None or line.get("Amount") is not None):
+                amount = Decimal(_numeric(line.get("amount", line.get("Amount"))))
+                quantity = Decimal(_leading_number(qty, "1")) or Decimal("1")
+                price = amount / quantity
+            line_cat = line.get("cat") or line.get("vat_category") or line.get("vatCategory") or line.get("IBT_151_ItemVATCategoryCode")
             unit, discount, description = line.get("unit", "EA"), line.get("discount", 0), line.get("description", "")
         else:
             name, qty, price, line_cat = (list(line) + [None, None, None, None])[:4]
@@ -233,6 +260,21 @@ def build_document_payload(payload: dict, direction: str = "AR") -> dict:
     billing_reference_number = (payload.get("billing_reference") or payload.get("billingReference")
                                 or payload.get("billingReferenceNumber") or payload.get("BillingReference") or payload.get("cn_ref") or payload.get("cn"))
 
+    party_name = (
+        payload.get("supplierName") or payload.get("sellerName") or payload.get("IBT_027_SellerName") or seller.get("IBT_027_SellerName")
+        if direction == "AP" else
+        payload.get("customerName") or payload.get("IBT_044_BuyerName") or buyer.get("IBT_044_BuyerName")
+    )
+    party_vatin = (
+        payload.get("supplierVat") or payload.get("sellerVat") or payload.get("IBT_031_SellerVATIdentifier") or seller.get("IBT_031_SellerVATIdentifier")
+        if direction == "AP" else
+        payload.get("IBT_048_BuyerVATIdentifier") or buyer.get("IBT_048_BuyerVATIdentifier")
+    )
+    party_endpoint = (
+        payload.get("supplierEndpoint") or payload.get("IBT_034_SellerElectronicAddress") or seller.get("IBT_034_SellerElectronicAddress")
+        if direction == "AP" else
+        payload.get("IBT_049_BuyerElectronicAddress") or buyer.get("IBT_049_BuyerElectronicAddress")
+    )
     return {
         "direction": direction,
         "document_type": document_type_key,
@@ -246,12 +288,13 @@ def build_document_payload(payload: dict, direction: str = "AR") -> dict:
         "due_date": payload.get("due_date") or payload.get("IBT_009_PaymentDueDate") or payment.get("IBT_009_PaymentDueDate") or None,
         "tax_point_date": payload.get("tax_point_date") or payload.get("IBT_007_TaxPointDate") or None,
         "transaction_type_code": payload.get("tt") or payload.get("BTOM_001_OmanTransactionType") or _DEFAULT_TT_BY_DOCUMENT_TYPE[document_type_key],
-        "counterparty_name": (payload.get("cp") or payload.get("customerName")
-                               or payload.get("counterparty_name") or payload.get("IBT_044_BuyerName") or buyer.get("IBT_044_BuyerName")
+        "counterparty_name": (payload.get("cp") or payload.get("counterparty_name") or party_name
                                or payload.get("PartyName") or ""),
-        "counterparty_vatin": payload.get("cpv") or payload.get("counterparty_vatin") or payload.get("IBT_048_BuyerVATIdentifier") or buyer.get("IBT_048_BuyerVATIdentifier") or "",
+        "counterparty_vatin": payload.get("cpv") or payload.get("counterparty_vatin") or party_vatin or "",
+        # Cash/B2C parties are not Peppol participants; preserve a genuinely blank endpoint
+        # instead of inserting a demo participant identifier into persisted business data.
         "counterparty_endpoint": (payload.get("eas") or payload.get("counterparty_endpoint")
-                                  or payload.get("IBT_049_BuyerElectronicAddress") or buyer.get("IBT_049_BuyerElectronicAddress") or (B2C_DUMMY if is_b2c else "")),
+                                  or party_endpoint or ""),
         "currency": payload.get("IBT_005_InvoiceCurrencyCode") or "OMR",
         "payment_means_code": payload.get("payment_means_code") or payload.get("IBT_081_PaymentMeansCode") or payment.get("IBT_081_PaymentMeansCode") or "30",
         "payment_iban": payload.get("iban") or payload.get("payment_iban") or payload.get("IBT_084_PaymentAccountIdentifier") or payment.get("IBT_084_PaymentAccountIdentifier") or "OM810180000000000000123",

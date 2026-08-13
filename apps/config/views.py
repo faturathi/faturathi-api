@@ -8,8 +8,8 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import services
-from .models import ApiCredential, SystemConfig, SystemLog
-from .serializers import SystemConfigSerializer, SystemLogSerializer
+from .models import ApiCredential, SupportTicket, SystemConfig, SystemLog
+from .serializers import SupportTicketSerializer, SystemConfigSerializer, SystemLogSerializer
 from apps.utils.permissions import IsPlatformAdmin, IsTenantAdministrator, ResolveActiveCompany, resolve_write_company
 from apps.utils.openapi import GenericApiSerializer
 from apps.user.models import User
@@ -44,6 +44,19 @@ class SystemLogListView(generics.ListAPIView):
 
     def get_queryset(self):
         return SystemLog.objects.filter(company_id__in=getattr(self.request, "active_company_ids", []))
+
+
+class SupportTicketListCreateView(generics.ListCreateAPIView):
+    serializer_class = SupportTicketSerializer
+    permission_classes = [ResolveActiveCompany]
+
+    def get_queryset(self):
+        return SupportTicket.objects.filter(company_id__in=getattr(self.request, "active_company_ids", []))
+
+    def perform_create(self, serializer):
+        company = resolve_write_company(self.request, self.request.data)
+        ticket = serializer.save(company=company, created_by=self.request.user)
+        services.log(self.request, "SUPPORT_TICKET_CREATE", entity="SupportTicket", entity_id=ticket.id)
 
 
 class ApiCredentialView(APIView):

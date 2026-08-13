@@ -3,7 +3,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from apps.utils.mixins import TenantQuerysetMixin
-from apps.utils.permissions import IsPlatformAdmin, IsTenantAdministrator, ResolveActiveCompany
+from apps.utils.permissions import IsPlatformAdmin, IsTenantAdministrator, ResolveActiveCompany, resolve_write_company
 
 from .models import Company, CompanyGroup, Customer
 from .serializers import CompanyGroupSerializer, CustomerSerializer, EntitySerializer
@@ -62,12 +62,18 @@ class EntityViewSet(viewsets.ModelViewSet):
 
 class CustomerViewSet(TenantQuerysetMixin, viewsets.ModelViewSet):
     serializer_class = CustomerSerializer
-    filterset_fields = ["is_walkin"]
+    filterset_fields = ["is_walkin", "company"]
     search_fields = ["name", "vatin"]
     permission_classes = [ResolveActiveCompany, IsTenantAdministrator]
 
     def get_queryset(self):
         return Customer.objects.filter(company_id__in=getattr(self.request, "active_company_ids", []))
+
+    def perform_create(self, serializer):
+        serializer.save(
+            company=resolve_write_company(self.request, self.request.data),
+            created_by=self.request.user,
+        )
 
     def perform_destroy(self, instance):
         instance.soft_delete()

@@ -22,6 +22,7 @@ class EntitySerializer(serializers.ModelSerializer):
     invoicePrefix = serializers.CharField(source="invoice_prefix", required=False)
     invoiceSuffix = serializers.CharField(source="invoice_suffix", required=False)
     creditNoteSuffix = serializers.CharField(source="credit_note_suffix", required=False)
+    nextInvoiceNumber = serializers.IntegerField(source="next_invoice_number", read_only=True)
     company_group = serializers.PrimaryKeyRelatedField(
         queryset=CompanyGroup.objects.all(), required=False, allow_null=True
     )
@@ -30,7 +31,8 @@ class EntitySerializer(serializers.ModelSerializer):
         model = Company
         fields = ["id", "company_group", "name", "nameAr", "vatin", "pid", "prefixes", "status",
                   "short_code", "entity_type", "crNum", "branchId", "address", "city",
-                  "email", "phone", "invoicePrefix", "invoiceSuffix", "creditNoteSuffix", "is_active"]
+                  "email", "phone", "invoicePrefix", "invoiceSuffix", "creditNoteSuffix",
+                  "nextInvoiceNumber", "is_active"]
         read_only_fields = ["id", "status"]
 
     def get_status(self, obj) -> str:

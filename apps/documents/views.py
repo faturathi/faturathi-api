@@ -4,13 +4,15 @@ import uuid
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q
+from django.db import IntegrityError, transaction
+from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
 from apps.config import services as config_services
@@ -133,6 +135,16 @@ class InvoiceViewSet(viewsets.ViewSet):
         if not requested_direction:
             requested_direction = "AP" if request.data.get("document_type") in ("SELF_BILLED_389", "SELF_BILLED_CN_261") else "AR"
         doc_payload = compat.build_document_payload(request.data, direction=requested_direction)
+        invoice_number = doc_payload.get("invoice_number", "")
+        if Document.objects.filter(
+            company=company, invoice_number=invoice_number, is_deleted=False
+        ).exists():
+            raise ValidationError({
+                "invoice_number": [
+                    f'Document number "{invoice_number}" already exists for {company.name_en}. '
+                    "Use the next number in the company numbering series."
+                ]
+            })
         reference_number = request.data.get("billingReferenceNumber")
         if reference_number:
             reference = get_object_or_404(self.get_queryset(), invoice_number=reference_number)
@@ -142,8 +154,27 @@ class InvoiceViewSet(viewsets.ViewSet):
             doc_payload = _resolve_billing_reference(self.get_queryset(), doc_payload)
         serializer = DocumentSerializer(data=doc_payload)
         serializer.is_valid(raise_exception=True)
-        document = serializer.save(company=company, created_by=request.user, direction=requested_direction)
-        config_services.log(request, "INVOICE_CREATE", entity="Document", entity_id=document.invoice_number)
+        try:
+            # Document, nested lines, PINT snapshot and audit log are one operation. A failure in
+            # any step must not leave a document saved while the client receives an error.
+            with transaction.atomic():
+                document = serializer.save(
+                    company=company, created_by=request.user, direction=requested_direction
+                )
+                type(company).objects.filter(pk=company.pk).update(
+                    next_invoice_number=F("next_invoice_number") + 1
+                )
+                config_services.log(
+                    request, "INVOICE_CREATE", entity="Document", entity_id=document.invoice_number
+                )
+        except IntegrityError as exc:
+            if "uniq_invoice_no_per_company" in str(exc):
+                raise ValidationError({
+                    "invoice_number": [
+                        f'Document number "{invoice_number}" already exists for {company.name_en}.'
+                    ]
+                }) from exc
+            raise
         return Response(compat.to_compat(document), status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, invoice_number=None):
@@ -221,21 +252,28 @@ class InvoiceViewSet(viewsets.ViewSet):
     @action(detail=True, methods=["post"])
     def approve(self, request, invoice_number=None):
         doc = self.get_document(invoice_number)
+        if doc.direction != "AP":
+            raise ValidationError({"document": ["Only inbound/AP documents can be approved for ERP posting."]})
+        if doc.ap_status == AP_STATUS_LABELS["approved"]:
+            return Response(compat.to_compat(doc))
+        if doc.ap_status == AP_STATUS_LABELS["rejected"]:
+            raise ValidationError({"status": ["A rejected AP document must be corrected before approval."]})
         doc.ap_status = AP_STATUS_LABELS["approved"]
         doc.save(update_fields=["ap_status"])
         config_services.log(request, "AP_APPROVE", entity="Document", entity_id=doc.invoice_number)
-        return Response({"status": "approved", "id": invoice_number, "ap_status": doc.ap_status})
+        return Response(compat.to_compat(doc))
 
     @action(detail=True, methods=["post"])
     def reject(self, request, invoice_number=None):
         doc = self.get_document(invoice_number)
         doc.ap_status = AP_STATUS_LABELS["rejected"]
+        doc.status = "REJECTED"
         note = request.data.get("notes") or request.data.get("reason")
         if note:
             doc.notes = note
-            doc.save(update_fields=["ap_status", "notes"])
+            doc.save(update_fields=["ap_status", "status", "notes"])
         else:
-            doc.save(update_fields=["ap_status"])
+            doc.save(update_fields=["ap_status", "status"])
         config_services.log(request, "AP_REJECT", entity="Document", entity_id=doc.invoice_number)
         return Response({"status": "rejected", "id": invoice_number, "ap_status": doc.ap_status})
 
@@ -474,9 +512,18 @@ class ValidateOmanView(APIView):
             "issue_date": raw.get("IBT_002_InvoiceIssueDate"),
             "issue_time": raw.get("IBT_168_InvoiceIssueTime") or "12:00:00",
             "transaction_type_code": raw.get("BTOM_001_OmanTransactionType") or "10000000000000000000",
-            "counterparty_name": buyer.get("IBT_044_BuyerName") or "Muscat Retail SAOC",
-            "counterparty_vatin": buyer.get("IBT_048_BuyerVATIdentifier") or "",
-            "counterparty_endpoint": buyer.get("IBT_049_BuyerElectronicAddress") or "",
+            "counterparty_name": (
+                seller.get("IBT_027_SellerName") if direction == "AP"
+                else buyer.get("IBT_044_BuyerName")
+            ) or ("Cash Customer" if result["isSimplified"] else ""),
+            "counterparty_vatin": (
+                seller.get("IBT_031_SellerVATIdentifier") if direction == "AP"
+                else buyer.get("IBT_048_BuyerVATIdentifier")
+            ) or "",
+            "counterparty_endpoint": (
+                seller.get("IBT_034_SellerElectronicAddress") if direction == "AP"
+                else buyer.get("IBT_049_BuyerElectronicAddress")
+            ) or "",
             "currency": "OMR",
             "payment_means_code": "30",
             "payment_iban": raw.get("PaymentDetails", {}).get("IBT_084_PaymentAccountIdentifier")

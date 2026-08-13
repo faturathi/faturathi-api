@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from apps.company.models import Company, CompanyGroup, Customer
 from apps.config.models import SystemConfig, SystemLog
+from apps.config.demo_logs import populate_demo_logs
 from apps.documents.models import Document, DocumentLine
 from apps.documents.pint_om import build_pint_payload, refresh_pint_snapshot
 from apps.documents.services import recompute_totals
@@ -321,22 +322,4 @@ class Command(BaseCommand):
         )
 
     def _seed_logs(self, companies, users):
-        admin_user = users["salim.h@intel-sol.om"]
-        samples = [
-            ("INFO", "USER_LOGIN", "Authentication", "Successful MFA login", {"category": "security", "severity": "INFO"}),
-            ("WARNING", "VALIDATION_WARNING", "Document", "Optional buyer postcode is missing", {"category": "validation", "severity": "WARNING", "rule": "PINT-OM-W-14"}),
-            ("ERROR", "PEPPOL_REJECTED", "Transmission", "AS4 delivery rejected by recipient access point", {"category": "peppol", "severity": "ERROR", "response_code": "C5"}),
-            ("ERROR", "OTA_REJECTION", "Document", "OTA rejected buyer VATIN format", {"category": "ota", "severity": "ERROR", "response_code": "C5"}),
-            ("WARNING", "SERVER_HEALTH", "ApplicationServer", "Worker memory crossed demonstration threshold", {"category": "server", "severity": "WARNING", "worker": "gunicorn-2"}),
-            ("INFO", "FILE_UPLOAD", "BatchUpload", "Spreadsheet batch imported successfully", {"category": "upload", "severity": "INFO", "accepted": 5, "rejected": 1}),
-            ("INFO", "ERP_SYNC", "Connector", "SAP S/4HANA synchronization completed", {"category": "erp", "severity": "INFO", "records": 12}),
-            ("ERROR", "SYSTEM_ERROR", "BackgroundJob", "Demonstration retryable timeout", {"category": "system", "severity": "ERROR", "retryable": True}),
-            ("INFO", "REPORT_GENERATED", "Report", "Monthly VAT and transmission report generated", {"category": "report", "severity": "INFO"}),
-        ]
-        for index, (_level, action, entity, message, detail) in enumerate(samples):
-            company = companies[["E1", "E2", "E3"][index % 3]]
-            SystemLog.objects.create(
-                company=company, user=admin_user, action=action, entity=entity,
-                entity_id=f"UAT-DEMO-{index + 1:02d}", detail={**detail, "message": message},
-                ip_address="127.0.0.1", created_by=admin_user,
-            )
+        populate_demo_logs(companies=companies.values(), clear_demo=True)

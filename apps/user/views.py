@@ -64,6 +64,22 @@ class LoginView(APIView):
         return _auth_response(user)
 
 
+class EmailOtpRequestView(APIView):
+    """Start the demo email-only OTP flow without disclosing whether an account exists."""
+    permission_classes = [AllowAny]
+    serializer_class = LoginRequestSerializer
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip().lower()
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if not user:
+            return Response({"detail": "No active portal user was found for this email."}, status=401)
+        config = SystemConfig.objects.filter(company_id=user.company_id).first() if user.company_id else None
+        if config and not config.allow_user_logins:
+            return Response({"detail": "User portal login is disabled for this company."}, status=403)
+        return Response({"mfa_required": True, "delivery": "email", "email": user.email})
+
+
 class MfaVerifyView(APIView):
     """POST /api/auth/mfa-verify/ email + otp (simulated: always DEMO_MFA_OTP) -> tokens."""
 

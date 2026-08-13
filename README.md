@@ -139,8 +139,8 @@ The generated dataset includes:
 - Document lines, calculated VAT totals and canonical PINT-OM JSON snapshots
 - Queued/validated, AS4-sent, MLS-reported and OTA-rejected transmission examples
 - User notifications and operational audit entries
-- INFO, WARNING and ERROR logs covering authentication, validation, file upload, ERP sync,
-  Peppol, OTA, application server health, report generation and retryable system errors
+- A complete operational log matrix for User Activity, OTA/AS4, Server/API and Error/Warning
+  categories at INFO, WARN, ERROR, AUDIT and TRANSMISSION levels
 
 This data powers the dashboard counts, invoice register, AR/AP views, lifecycle reports,
 transmission screens, notifications and system-log screens.
@@ -170,6 +170,45 @@ The `ALLOW_SEED_RESET` setting protects only the HTTP reset endpoints (`/api/con
 `/api/reset-db` and `/api/clear`). It does not prevent a server operator with shell access from
 running `seed_demo`. Production must set `ALLOW_SEED_RESET=False` and restrict shell/SSH access.
 
+### Populate or refresh demonstration logs only
+
+Run the dedicated command when companies and users already exist and you only need log data for
+the portal's System Logs, reports, filters and charts:
+
+```powershell
+python manage.py seed_demo_logs
+```
+
+The command creates 20 deterministic log scenarios for every active company. It covers these
+categories:
+
+- `USER_ACTIVITY` — login, authorization, profile changes and user document submission
+- `OTA_AS4` — OTA status, AS4 warnings/rejections, evidence and acknowledgements
+- `SERVER_API` — REST requests, connector credentials, API warnings/timeouts and ingestion
+- `ERROR_WARNING` — validation results, warnings, exceptions, reviews and retries
+
+Every category contains all five demo levels: `INFO`, `WARN`, `ERROR`, `AUDIT` and
+`TRANSMISSION`. Each record stores the category, level/severity, human-readable message, demo
+marker and source in `SystemLog.detail`. Timestamps are distributed across recent history so date
+filters and dashboard charts show meaningful data.
+
+The command is idempotent: running it again refreshes the same identified demo rows instead of
+adding duplicates. To delete and rebuild **only management-command demo logs**, while preserving
+real application audit records, run:
+
+```powershell
+python manage.py seed_demo_logs --clear-demo
+```
+
+To populate logs for one tenant company only:
+
+```powershell
+python manage.py seed_demo_logs --company E1
+```
+
+`seed_uat_demo` and `seed_demo` also invoke this log generator automatically. Therefore, a newly
+seeded three-company UAT environment contains 60 matrix log rows without running a second command.
+
 ### Verify the populated data
 
 ```powershell
@@ -177,7 +216,7 @@ python manage.py shell -c "from apps.company.models import CompanyGroup,Company;
 ```
 
 Expected base totals are one group, three companies, five users, eleven documents, eleven
-transmissions and nine demonstration system logs. Additional API activity may increase logs and
+transmissions and 60 demonstration system logs. Additional API activity may increase logs and
 notifications.
 
 Useful inspection commands:
@@ -187,6 +226,7 @@ python manage.py showmigrations
 python manage.py check
 python manage.py shell -c "from apps.documents.models import Document; print(list(Document.objects.values_list('invoice_number','document_type','status','source')))"
 python manage.py shell -c "from apps.config.models import SystemLog; print(list(SystemLog.objects.values_list('action','entity','detail')))"
+python manage.py shell -c "from apps.config.models import SystemLog; from django.db.models import Count; print(list(SystemLog.objects.values('detail__category','detail__level').annotate(total=Count('id')).order_by('detail__category','detail__level')))"
 ```
 
 ### Create a production administrator without sample data

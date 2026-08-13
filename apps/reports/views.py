@@ -7,8 +7,9 @@ from rest_framework.views import APIView
 
 from apps.documents.compat import to_compat
 from apps.documents.models import Document
+from apps.config import services as config_services
 from apps.utils.constants import VAT_CATEGORIES
-from apps.utils.helpers import csv_export
+from apps.utils.helpers import csv_export, json_export, sql_export
 from apps.utils.openapi import GenericApiSerializer
 
 PENDING_STATUSES = ["DRAFT", "VALIDATED", "PENDING", "SUBMITTED"]
@@ -98,6 +99,12 @@ class TaxGridExportView(APIView):
     def get(self, request):
         qs = _filtered_queryset(request)
         rows = [_grid_row(d) for d in qs]
+        config_services.log(request, "ARCHIVE_EXPORT_REQUEST", entity="DocumentArchive", detail={
+            "date_from": request.query_params.get("date_from"),
+            "date_to": request.query_params.get("date_to"),
+            "purpose": request.query_params.get("purpose", "Regulatory audit / internal review"),
+            "row_count": len(rows),
+        })
         fieldnames = ["invoice_number", "date", "type", "counterparty", "counterparty_vatin",
                       "net", "vat", "total", "status", "tdd"]
         return csv_export("tax-grid.csv", fieldnames, rows)
@@ -105,10 +112,15 @@ class TaxGridExportView(APIView):
 
 class ArchiveExportView(APIView):
     serializer_class = GenericApiSerializer
-    """GET /api/reports/archive/export?date_from=&date_to= — CSV export over the full retained
-    history (up to 10 years back), for the Reports & Archive UI's archive/backup controls."""
+    """GET /api/reports/archive/export?date_from=&date_to=&format=csv|json|sql|pgdump&purpose= —
+    export over the full retained history (up to 10 years back), for the Reports & Archive UI's
+    archive/backup controls. `pgdump` is served as the same tenant-scoped SQL INSERT statements as
+    `sql` (see apps.utils.helpers.sql_export) — a literal pg_dump has no per-tenant/date filtering
+    and would risk exporting other tenants' data, so it is not used here."""
 
     MAX_YEARS_BACK = 10
+    FIELDNAMES = ["invoice_number", "date", "time", "direction", "type", "counterparty",
+                  "counterparty_vatin", "net", "vat", "total", "status", "tdd", "uuid"]
 
     def get(self, request):
         today = timezone.localdate()
@@ -117,14 +129,25 @@ class ArchiveExportView(APIView):
         date_to = request.query_params.get("date_to") or today.isoformat()
         if date_from < earliest_allowed.isoformat():
             date_from = earliest_allowed.isoformat()
+        export_format = (request.query_params.get("format") or "csv").lower()
 
         qs = (Document.objects.filter(company_id__in=request.active_company_ids)
               .filter(issue_date__gte=date_from, issue_date__lte=date_to)
               .prefetch_related("lines").order_by("issue_date"))
         rows = [_grid_row(d) for d in qs]
-        fieldnames = ["invoice_number", "date", "time", "direction", "type", "counterparty",
-                      "counterparty_vatin", "net", "vat", "total", "status", "tdd", "uuid"]
-        return csv_export(f"faturathi-archive-{date_from}_to_{date_to}.csv", fieldnames, rows)
+
+        config_services.log(
+            request, "ARCHIVE_EXPORT", entity="Document", count=len(rows),
+            date_from=date_from, date_to=date_to, format=export_format,
+            purpose=request.query_params.get("purpose", ""),
+        )
+
+        base_name = f"faturathi-archive-{date_from}_to_{date_to}"
+        if export_format == "json":
+            return json_export(f"{base_name}.json", rows)
+        if export_format in ("sql", "pgdump"):
+            return sql_export(f"{base_name}.sql", "faturathi_archive", self.FIELDNAMES, rows)
+        return csv_export(f"{base_name}.csv", self.FIELDNAMES, rows)
 
 
 class VatGroupsView(APIView):

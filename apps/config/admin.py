@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ApiCredential, SystemConfig, SystemLog
+from .models import ApiCredential, SupportTicket, SystemConfig, SystemLog
 from apps.utils.admin_mixins import TenantAdminMixin
 
 
@@ -18,3 +18,9 @@ class SystemLogAdmin(TenantAdminMixin, admin.ModelAdmin):
 class ApiCredentialAdmin(TenantAdminMixin, admin.ModelAdmin):
     list_display = ["name", "company", "key_prefix", "service_user", "is_active", "last_used_at"]
     readonly_fields = ["key_hash", "key_prefix", "last_used_at"]
+
+
+@admin.register(SupportTicket)
+class SupportTicketAdmin(TenantAdminMixin, admin.ModelAdmin):
+    list_display = ["subject", "company", "category", "contact_email", "status", "created_at"]
+    list_filter = ["category", "status"]
