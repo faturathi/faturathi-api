@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import authenticate
+from django.core import signing
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -17,6 +18,10 @@ from .models import Notification, User
 from .serializers import NotificationSerializer, UserAdminSerializer
 from apps.utils.openapi import GenericApiSerializer, LoginRequestSerializer, MfaRequestSerializer
 from drf_spectacular.utils import extend_schema
+
+
+MFA_CHALLENGE_SALT = "faturathi.auth.mfa"
+MFA_CHALLENGE_MAX_AGE_SECONDS = 300
 
 
 def _user_payload(user: User) -> dict:
@@ -42,7 +47,7 @@ def _auth_response(user: User) -> Response:
 
 
 class LoginView(APIView):
-    """POST /api/auth/login/ -> tokens, or {"mfa_required": true} for mfa_enabled users."""
+    """Validate the password, then always require the second-factor OTP."""
 
     permission_classes = [AllowAny]
     serializer_class = LoginRequestSerializer
@@ -59,29 +64,22 @@ class LoginView(APIView):
         if config and not config.allow_user_logins:
             return Response({"detail": "User portal login is disabled for this company. Contact your administrator."},
                             status=status.HTTP_403_FORBIDDEN)
-        if user.mfa_enabled or (config and config.mfa_enforced):
-            return Response({"mfa_required": True, "email": user.email})
-        return _auth_response(user)
-
-
-class EmailOtpRequestView(APIView):
-    """Start the demo email-only OTP flow without disclosing whether an account exists."""
-    permission_classes = [AllowAny]
-    serializer_class = LoginRequestSerializer
-
-    def post(self, request):
-        email = str(request.data.get("email", "")).strip().lower()
-        user = User.objects.filter(email__iexact=email, is_active=True).first()
-        if not user:
-            return Response({"detail": "No active portal user was found for this email."}, status=401)
-        config = SystemConfig.objects.filter(company_id=user.company_id).first() if user.company_id else None
-        if config and not config.allow_user_logins:
-            return Response({"detail": "User portal login is disabled for this company."}, status=403)
-        return Response({"mfa_required": True, "delivery": "email", "email": user.email})
+        challenge = signing.dumps(
+            {"user_id": str(user.id), "email": user.email},
+            salt=MFA_CHALLENGE_SALT,
+            compress=True,
+        )
+        return Response({
+            "mfa_required": True,
+            "delivery": "email",
+            "email": user.email,
+            "mfa_challenge": challenge,
+            "expires_in": MFA_CHALLENGE_MAX_AGE_SECONDS,
+        })
 
 
 class MfaVerifyView(APIView):
-    """POST /api/auth/mfa-verify/ email + otp (simulated: always DEMO_MFA_OTP) -> tokens."""
+    """Verify OTP only after a recent, successful password authentication."""
 
     permission_classes = [AllowAny]
     serializer_class = MfaRequestSerializer
@@ -90,10 +88,30 @@ class MfaVerifyView(APIView):
     def post(self, request):
         email = request.data.get("email", "")
         otp = str(request.data.get("otp", "")).strip()
+        challenge = str(request.data.get("mfa_challenge", "")).strip()
         try:
-            user = User.objects.get(email__iexact=email, is_active=True)
+            challenge_payload = signing.loads(
+                challenge,
+                salt=MFA_CHALLENGE_SALT,
+                max_age=MFA_CHALLENGE_MAX_AGE_SECONDS,
+            )
+        except (signing.BadSignature, signing.SignatureExpired):
+            return Response(
+                {"detail": "Your password verification has expired or is invalid. Please sign in again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        try:
+            user = User.objects.get(
+                id=challenge_payload.get("user_id"),
+                email__iexact=email,
+                is_active=True,
+            )
         except User.DoesNotExist:
-            return Response({"detail": "Invalid email."}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"detail": "Password verification does not match this user. Please sign in again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         config = SystemConfig.objects.filter(company_id=user.company_id).first() if user.company_id else None
         if config and not config.allow_user_logins:

@@ -15,6 +15,7 @@ class LoginRequestSerializer(serializers.Serializer):
 class MfaRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp = serializers.CharField(write_only=True)
+    mfa_challenge = serializers.CharField(write_only=True)
 
 
 class DocumentTypeSerializer(serializers.Serializer):

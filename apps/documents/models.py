@@ -42,6 +42,11 @@ class Document(TenantModel):
     # parties (seller = self.company for AR; for AP seller data sits in counterparty_* fields)
     customer = models.ForeignKey(
         "company.Customer", null=True, blank=True, on_delete=models.PROTECT, related_name="documents")
+    branch = models.ForeignKey(
+        "company.CompanyBranch", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="documents",
+        help_text="Operational branch/outlet; shares the document company's VATIN.",
+    )
     counterparty_name = models.CharField(max_length=200, blank=True)
     counterparty_vatin = models.CharField(max_length=14, blank=True)
     counterparty_endpoint = models.CharField(max_length=30, blank=True)

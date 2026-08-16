@@ -1,12 +1,13 @@
 from datetime import timedelta
 
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.documents.compat import to_compat
 from apps.documents.models import Document
+from apps.company.models import CompanyBranch
 from apps.config import services as config_services
 from apps.utils.constants import VAT_CATEGORIES
 from apps.utils.helpers import csv_export, json_export, sql_export
@@ -42,7 +43,9 @@ class DashboardView(APIView):
 
 
 def _filtered_queryset(request):
-    qs = Document.objects.filter(company_id__in=request.active_company_ids).prefetch_related("lines")
+    qs = Document.objects.filter(company_id__in=request.active_company_ids).prefetch_related(
+        "lines"
+    ).select_related("company", "branch")
     params = request.query_params
     if params.get("dir"):
         qs = qs.filter(direction=params["dir"])
@@ -50,6 +53,12 @@ def _filtered_queryset(request):
         qs = qs.filter(status=params["status"])
     if params.get("doc_type"):
         qs = qs.filter(doc_type=params["doc_type"])
+    if params.get("branch"):
+        branch = params["branch"]
+        try:
+            qs = qs.filter(branch_id=branch)
+        except (ValueError, TypeError):
+            qs = qs.filter(branch__code__iexact=branch)
     if params.get("date_from"):
         qs = qs.filter(issue_date__gte=params["date_from"])
     if params.get("date_to"):
@@ -80,6 +89,12 @@ def _grid_row(document) -> dict:
         "tdd": compat_row["tdd"],
         "error": compat_row["err"],
         "uuid": compat_row["uuid"],
+        "company_id": str(document.company_id),
+        "company_name": document.company.name_en,
+        "company_vatin": document.company.vat_number,
+        "branch_id": str(document.branch_id) if document.branch_id else None,
+        "branch_code": document.branch.code if document.branch_id else "UNASSIGNED",
+        "branch_name": document.branch.name if document.branch_id else "Company default / unassigned",
     }
 
 
@@ -90,6 +105,47 @@ class TaxGridView(APIView):
     def get(self, request):
         qs = _filtered_queryset(request)
         return Response([_grid_row(d) for d in qs])
+
+
+class BranchSummaryView(APIView):
+    serializer_class = GenericApiSerializer
+    """GET /api/reports/branch-summary — totals by operational branch, not legal entity."""
+
+    def get(self, request):
+        documents = _filtered_queryset(request)
+        branches = CompanyBranch.objects.filter(
+            company_id__in=request.active_company_ids, is_active=True
+        ).select_related("company")
+        rows = []
+        for branch in branches:
+            totals = documents.filter(branch=branch).aggregate(
+                document_count=Count("id"), net=Sum("tax_exclusive_amount"),
+                vat=Sum("tax_amount"), total=Sum("tax_inclusive_amount"),
+            )
+            rows.append({
+                "branch_id": str(branch.id), "branch_code": branch.code,
+                "branch_name": branch.name, "company_id": str(branch.company_id),
+                "company_name": branch.company.name_en,
+                "company_vatin": branch.company.vat_number,
+                "document_count": totals["document_count"] or 0,
+                "net": float(totals["net"] or 0), "vat": float(totals["vat"] or 0),
+                "total": float(totals["total"] or 0),
+            })
+
+        unassigned = documents.filter(branch__isnull=True).aggregate(
+            document_count=Count("id"), net=Sum("tax_exclusive_amount"),
+            vat=Sum("tax_amount"), total=Sum("tax_inclusive_amount"),
+        )
+        if unassigned["document_count"]:
+            rows.append({
+                "branch_id": None, "branch_code": "UNASSIGNED",
+                "branch_name": "Company default / unassigned", "company_id": None,
+                "company_name": "Multiple / company default", "company_vatin": "",
+                "document_count": unassigned["document_count"],
+                "net": float(unassigned["net"] or 0), "vat": float(unassigned["vat"] or 0),
+                "total": float(unassigned["total"] or 0),
+            })
+        return Response(rows)
 
 
 class TaxGridExportView(APIView):
@@ -105,7 +161,8 @@ class TaxGridExportView(APIView):
             "purpose": request.query_params.get("purpose", "Regulatory audit / internal review"),
             "row_count": len(rows),
         })
-        fieldnames = ["invoice_number", "date", "type", "counterparty", "counterparty_vatin",
+        fieldnames = ["invoice_number", "date", "type", "company_name", "company_vatin",
+                      "branch_code", "branch_name", "counterparty", "counterparty_vatin",
                       "net", "vat", "total", "status", "tdd"]
         return csv_export("tax-grid.csv", fieldnames, rows)
 
@@ -119,7 +176,8 @@ class ArchiveExportView(APIView):
     and would risk exporting other tenants' data, so it is not used here."""
 
     MAX_YEARS_BACK = 10
-    FIELDNAMES = ["invoice_number", "date", "time", "direction", "type", "counterparty",
+    FIELDNAMES = ["invoice_number", "date", "time", "direction", "type", "company_name",
+                  "company_vatin", "branch_code", "branch_name", "counterparty",
                   "counterparty_vatin", "net", "vat", "total", "status", "tdd", "uuid"]
 
     def get(self, request):

@@ -5,8 +5,8 @@ from rest_framework.response import Response
 from apps.utils.mixins import TenantQuerysetMixin
 from apps.utils.permissions import IsPlatformAdmin, IsTenantAdministrator, ResolveActiveCompany, resolve_write_company
 
-from .models import Company, CompanyGroup, Customer
-from .serializers import CompanyGroupSerializer, CustomerSerializer, EntitySerializer
+from .models import Company, CompanyBranch, CompanyGroup, Customer
+from .serializers import CompanyBranchSerializer, CompanyGroupSerializer, CustomerSerializer, EntitySerializer
 
 
 class EntityViewSet(viewsets.ModelViewSet):
@@ -76,6 +76,35 @@ class CustomerViewSet(TenantQuerysetMixin, viewsets.ModelViewSet):
         )
 
     def perform_destroy(self, instance):
+        instance.soft_delete()
+
+
+class CompanyBranchViewSet(viewsets.ModelViewSet):
+    """Operational branches/outlets sharing their parent company's legal VATIN."""
+
+    serializer_class = CompanyBranchSerializer
+    permission_classes = [ResolveActiveCompany, IsTenantAdministrator]
+
+    def get_queryset(self):
+        queryset = CompanyBranch.objects.filter(
+            company_id__in=getattr(self.request, "active_company_ids", []), is_active=True
+        ).select_related("company")
+        company_id = self.request.query_params.get("company")
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(
+            company=resolve_write_company(self.request, self.request.data),
+            created_by=self.request.user,
+        )
+
+    def perform_destroy(self, instance):
+        if instance.documents.filter(is_deleted=False).exists():
+            raise ValidationError({
+                "branch": ["This branch cannot be deleted while documents are assigned to it. Disable it instead."]
+            })
         instance.soft_delete()
 
 

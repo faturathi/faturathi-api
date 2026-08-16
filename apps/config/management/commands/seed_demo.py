@@ -11,7 +11,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.company.models import Company, CompanyGroup, Customer
+from apps.company.models import Company, CompanyBranch, CompanyGroup, Customer
 from apps.config.models import SystemConfig, SystemLog
 from apps.config.demo_logs import populate_demo_logs
 from apps.documents.models import Document, DocumentLine
@@ -117,10 +117,11 @@ class Command(BaseCommand):
         self._wipe()
         group = self._seed_company_group()
         companies = self._seed_companies(group)
+        branches = self._seed_branches(companies)
         users = self._seed_users(companies)
         self._seed_system_configs(companies, users)
         customers = self._seed_customers(companies, users)
-        self._seed_invoices(companies, customers, users)
+        self._seed_invoices(companies, branches, customers, users)
         self._seed_notifications(companies, users)
         self._seed_logs(companies, users)
         self.stdout.write(self.style.SUCCESS(
@@ -138,6 +139,7 @@ class Command(BaseCommand):
         SystemLog.all_objects.all().delete()
         SystemConfig.all_objects.all().delete()
         Customer.all_objects.all().delete()
+        CompanyBranch.all_objects.all().delete()
         User.objects.all().delete()
         Company.objects.all().delete()
         CompanyGroup.objects.all().delete()
@@ -169,6 +171,30 @@ class Command(BaseCommand):
             )
             companies[spec["short_code"]] = company
         return companies
+
+    def _seed_branches(self, companies):
+        """Operational outlets that share each legal company's VAT registration."""
+        specs = {
+            "E1": [
+                ("MCT-01", "Muscat Main Branch", "IIS-MCT-", "/OM"),
+                ("SOH-01", "Sohar Branch", "IIS-SOH-", "/OM"),
+                ("SLL-01", "Salalah Branch", "IIS-SLL-", "/OM"),
+            ],
+            "E2": [("SOH-HQ", "Sohar Main Branch", "AAE-SOH-", "/OM")],
+            "E3": [("SLL-HQ", "Salalah Main Branch", "ABS-SLL-", "/OM")],
+        }
+        result = {}
+        for company_code, branch_specs in specs.items():
+            result[company_code] = []
+            for code, name, prefix, suffix in branch_specs:
+                result[company_code].append(CompanyBranch.objects.create(
+                    company=companies[company_code], code=code, name=name,
+                    city="Muscat" if code.startswith("MCT") else "Sohar" if code.startswith("SOH") else "Salalah",
+                    invoice_prefix=prefix, invoice_suffix=suffix,
+                    credit_note_prefix=prefix.replace("IIS-", "CN-").replace("AAE-", "CN-").replace("ABS-", "CN-"),
+                    credit_note_suffix="/CN", next_invoice_number=500,
+                ))
+        return result
 
     def _seed_users(self, companies):
         specs = [
@@ -228,18 +254,22 @@ class Command(BaseCommand):
 
     # -- invoices -------------------------------------------------------------
 
-    def _seed_invoices(self, companies, customers, users):
+    def _seed_invoices(self, companies, branches, customers, users):
         admin_user = users["superadmin@faturathi.netbue.om"]
         created_by_number = {}
 
+        branch_counters = {code: 0 for code in branches}
         for spec in SEED_INVOICES:
             company = companies[spec["ent"]]
+            company_branches = branches.get(spec["ent"], [])
+            branch = company_branches[branch_counters[spec["ent"]] % len(company_branches)] if company_branches else None
+            branch_counters[spec["ent"]] += 1
             issue_date = datetime.strptime(spec["d"], "%Y-%m-%d").date()
             issue_time = datetime.strptime(spec["t"], "%H:%M:%S").time()
             customer = customers.get((spec["ent"], spec["cp"]))
 
             document = Document.objects.create(
-                company=company, created_by=admin_user,
+                company=company, branch=branch, created_by=admin_user,
                 direction=spec["direction"], document_type=spec.get("document_type", "STANDARD_380"),
                 is_export=spec.get("is_export", False),
                 invoice_number=spec["n"], issue_date=issue_date, issue_time=issue_time,

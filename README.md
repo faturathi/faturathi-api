@@ -282,13 +282,19 @@ Content-Type: application/json
 {"email":"salim.h@intel-sol.om","password":"Demo@1234"}
 ```
 
-If MFA is required:
+After the password is accepted, the response always requires MFA and returns a short-lived
+`mfa_challenge`. Submit that challenge with the OTP; OTP verification cannot be called directly
+without first validating the password:
 
 ```http
 POST /api/v1/auth/mfa-verify
 Content-Type: application/json
 
-{"email":"salim.h@intel-sol.om","otp":"582910"}
+{
+  "email":"salim.h@intel-sol.om",
+  "otp":"582910",
+  "mfa_challenge":"<value-returned-by-auth-login>"
+}
 ```
 
 Protected request:
@@ -316,6 +322,9 @@ X-API-KEY: <api-key-from-connectors/credentials>
 - `GET /api/v1/auth/me`
 - `GET|POST|PATCH|DELETE /api/v1/users`
 - `GET|POST|PATCH|DELETE /api/v1/entities`
+- `GET|POST|PATCH|DELETE /api/v1/branches` — operational outlets under one legal company;
+  every branch shares the parent company's VATIN/Peppol participant but owns a branch code and
+  invoice/credit-note numbering series
 - `GET|POST|PATCH|DELETE /api/v1/company-groups`
 - `GET|POST|PATCH|DELETE /api/v1/customers`
 - `GET|POST|PATCH /api/v1/notifications`
@@ -357,6 +366,8 @@ logs and Peppol workflow.
 - `GET /api/v1/peppol/transmissions`
 - `GET /api/v1/reports/dashboard`
 - `GET /api/v1/reports/tax-grid`
+- `GET /api/v1/reports/tax-grid?branch=<branch-uuid-or-code>` — branch-filtered document report
+- `GET /api/v1/reports/branch-summary` — document, net, VAT and gross totals per operational branch
 - `GET /api/v1/reports/tax-grid/export?format=csv`
 - `GET /api/v1/reports/archive/export?date_from=&date_to=` — CSV export over the full retained
   history, up to 10 years back (defaults to the full 10-year window when both params are omitted)

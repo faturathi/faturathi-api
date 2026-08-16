@@ -16,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
 from apps.config import services as config_services
+from apps.company.models import CompanyBranch
 from apps.peppol import services as peppol_services
 from apps.utils.constants import DOCUMENT_TYPE_CATALOG
 from apps.utils.permissions import CanOperateDocuments, ResolveActiveCompany, resolve_write_company
@@ -63,6 +64,26 @@ def _resolve_billing_reference(queryset, doc_payload: dict) -> dict:
     return doc_payload
 
 
+def _resolve_branch(company, doc_payload: dict) -> dict:
+    """Resolve a branch UUID or branch code within the selected legal company only."""
+    branch_value = doc_payload.get("branch")
+    if not branch_value:
+        doc_payload["branch"] = None
+        return doc_payload
+    queryset = CompanyBranch.objects.filter(company=company, is_active=True)
+    try:
+        branch = queryset.filter(pk=branch_value).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        branch = None
+    branch = branch or queryset.filter(code__iexact=str(branch_value).strip()).first()
+    if branch is None:
+        raise ValidationError({
+            "branch": ["Select an active branch belonging to the document's legal company."]
+        })
+    doc_payload["branch"] = str(branch.id)
+    return doc_payload
+
+
 class InvoiceViewSet(viewsets.ViewSet):
     """/api/invoices — plain-array list, invoice_number-keyed lookups (matches faturathi-ui)."""
 
@@ -82,7 +103,9 @@ class InvoiceViewSet(viewsets.ViewSet):
     def get_queryset(self):
         return Document.objects.filter(
             company_id__in=getattr(self.request, "active_company_ids", [])
-        ).prefetch_related("lines", "transmissions").select_related("company", "billing_reference")
+        ).prefetch_related("lines", "transmissions").select_related(
+            "company", "branch", "billing_reference"
+        )
 
     # -- CRUD -----------------------------------------------------------
 
@@ -97,6 +120,12 @@ class InvoiceViewSet(viewsets.ViewSet):
         doc_type = request.query_params.get("doc_type")
         if doc_type:
             qs = qs.filter(doc_type=doc_type)
+        branch = request.query_params.get("branch")
+        if branch:
+            try:
+                qs = qs.filter(branch_id=branch)
+            except (ValueError, TypeError, DjangoValidationError):
+                qs = qs.filter(branch__code__iexact=branch)
         ap_status = request.query_params.get("ap_status")
         if ap_status:
             label = AP_STATUS_LABELS.get(ap_status.lower())
@@ -135,6 +164,7 @@ class InvoiceViewSet(viewsets.ViewSet):
         if not requested_direction:
             requested_direction = "AP" if request.data.get("document_type") in ("SELF_BILLED_389", "SELF_BILLED_CN_261") else "AR"
         doc_payload = compat.build_document_payload(request.data, direction=requested_direction)
+        doc_payload = _resolve_branch(company, doc_payload)
         invoice_number = doc_payload.get("invoice_number", "")
         if Document.objects.filter(
             company=company, invoice_number=invoice_number, is_deleted=False
@@ -164,6 +194,10 @@ class InvoiceViewSet(viewsets.ViewSet):
                 type(company).objects.filter(pk=company.pk).update(
                     next_invoice_number=F("next_invoice_number") + 1
                 )
+                if document.branch_id:
+                    CompanyBranch.objects.filter(pk=document.branch_id).update(
+                        next_invoice_number=F("next_invoice_number") + 1
+                    )
                 config_services.log(
                     request, "INVOICE_CREATE", entity="Document", entity_id=document.invoice_number
                 )
@@ -183,6 +217,10 @@ class InvoiceViewSet(viewsets.ViewSet):
             return Response({"detail": "Only draft/pending/rejected invoices can be edited."},
                              status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         doc_payload = compat.build_document_payload(request.data, direction=doc.direction)
+        if any(key in request.data for key in ("branch", "branch_id", "branchId")):
+            doc_payload = _resolve_branch(doc.company, doc_payload)
+        else:
+            doc_payload.pop("branch", None)
         doc_payload.pop("invoice_number", None)  # invoice number stays fixed on edit
         doc_payload = _resolve_billing_reference(self.get_queryset(), doc_payload)
         serializer = DocumentSerializer(doc, data=doc_payload, partial=True)
@@ -317,6 +355,7 @@ class InvoiceViewSet(viewsets.ViewSet):
         payload = request.data
         company = resolve_write_company(request, request.data)
         doc_payload = compat.build_document_payload(payload, direction="AP")
+        doc_payload = _resolve_branch(company, doc_payload)
         doc_payload = _resolve_billing_reference(self.get_queryset(), doc_payload)
         serializer = DocumentSerializer(data=doc_payload)
         serializer.is_valid(raise_exception=True)
@@ -360,6 +399,7 @@ def _create_documents_from_rows(rows, company, user, queryset, source: str, erp_
         try:
             direction = item.get("dir_internal") or item.get("dir") or item.get("direction") or "AR"
             doc_payload = compat.build_document_payload(item, direction=direction)
+            doc_payload = _resolve_branch(company, doc_payload)
             doc_payload = _resolve_billing_reference(queryset, doc_payload)
             doc_payload.setdefault("erp_system", "")
             doc_payload["erp_system"] = doc_payload["erp_system"] or erp_default
@@ -534,6 +574,7 @@ class ValidateOmanView(APIView):
             # Full ingested IBT-named payload (seller/buyer addresses, allowances, GTIN, delivery,
             # PaymentDetails, ...) — kept verbatim since only a subset is promoted to real columns.
             "extra_data": {"ingested_payload": raw},
+            "branch": raw.get("branch_id") or raw.get("branchId") or raw.get("branch"),
             "lines": [
                 {
                     "line_id": idx,
@@ -548,6 +589,7 @@ class ValidateOmanView(APIView):
                 for idx, line in enumerate(lines or [{}], start=1)
             ],
         }
+        doc_payload = _resolve_branch(company, doc_payload)
         doc_payload["_billing_reference_number"] = raw.get("BillingReference") or raw.get("billing_reference")
         doc_payload = _resolve_billing_reference(self.get_queryset(), doc_payload)
         serializer = DocumentSerializer(data=doc_payload)

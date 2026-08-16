@@ -141,6 +141,9 @@ def build_pint_payload(document) -> dict:
             "created_by": document.created_by.email if document.created_by_id else "",
             "created_at": document.created_at.isoformat() if document.created_at else "",
             "status": document.status,
+            "branch_id": str(document.branch_id) if document.branch_id else "",
+            "branch_code": document.branch.code if document.branch_id else "",
+            "branch_name": document.branch.name if document.branch_id else "",
         },
     }
 

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Company, CompanyGroup, Customer
+from .models import Company, CompanyBranch, CompanyGroup, Customer
 from apps.utils.admin_mixins import TenantAdminMixin, admin_company_ids
 from apps.utils.permissions import is_platform_admin
 
@@ -28,3 +28,10 @@ class CompanyAdmin(admin.ModelAdmin):
 @admin.register(Customer)
 class CustomerAdmin(TenantAdminMixin, admin.ModelAdmin):
     list_display = ["name", "company", "vatin", "is_walkin"]
+
+
+@admin.register(CompanyBranch)
+class CompanyBranchAdmin(TenantAdminMixin, admin.ModelAdmin):
+    list_display = ["code", "name", "company", "invoice_prefix", "invoice_suffix", "is_active"]
+    list_filter = ["company", "is_active"]
+    search_fields = ["code", "name", "company__name_en"]

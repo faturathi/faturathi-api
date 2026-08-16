@@ -166,6 +166,10 @@ def to_compat(document) -> dict:
         "uuid": str(document.uuid_v5) if document.uuid_v5 else None,
         "cat": primary_cat,
         "ent": document.company.short_code if document.company_id else None,
+        "branch": f"{document.branch.code} — {document.branch.name}" if document.branch_id else None,
+        "branchId": str(document.branch_id) if document.branch_id else None,
+        "branchCode": document.branch.code if document.branch_id else None,
+        "branchName": document.branch.name if document.branch_id else None,
         "sName": seller_name,
         "sVat": seller_vatin,
         "buyerName": buyer_name,
@@ -303,6 +307,7 @@ def build_document_payload(payload: dict, direction: str = "AR") -> dict:
         "source": payload.get("source") or "MANUAL",
         "notes": notes,
         "erp_system": payload.get("erpSystem") or payload.get("erp_system") or "",
+        "branch": payload.get("branch_id") or payload.get("branchId") or payload.get("branch") or None,
         "extra_data": {"ingested_payload": payload.get("extra_data") or payload.get("extra") or payload},
         "lines": lines,
         # Not a Document field: the view resolves this invoice_number to a billing_reference FK.

@@ -68,6 +68,40 @@ class Company(BaseModel):
         return f"{self.short_code} {self.name_en}".strip()
 
 
+class CompanyBranch(TenantModel):
+    """Operational outlet/branch under one legal company and one VAT registration.
+
+    A branch is deliberately not a Company and is never a Peppol participant or tenant
+    boundary.  It only identifies where a document originated and which local numbering
+    series should be used (for example three coffee shops using the same OM11 VATIN).
+    """
+
+    code = models.CharField(max_length=12)
+    name = models.CharField(max_length=120)
+    address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=60, default="Muscat")
+    contact_email = models.EmailField(blank=True)
+    contact_phone = models.CharField(max_length=20, blank=True)
+    invoice_prefix = models.CharField(max_length=20, default="INV-")
+    invoice_suffix = models.CharField(max_length=12, default="/OM")
+    credit_note_prefix = models.CharField(max_length=20, default="CN-")
+    credit_note_suffix = models.CharField(max_length=12, default="/CN")
+    next_invoice_number = models.PositiveIntegerField(default=1)
+    is_active = models.BooleanField(default=True)
+
+    class Meta(TenantModel.Meta):
+        ordering = ["company__short_code", "code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "code"], condition=models.Q(is_deleted=False),
+                name="uniq_active_branch_code_per_company",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.code} — {self.name}"
+
+
 class Customer(TenantModel):
     """Buyer/counterparty book per tenant."""
 
