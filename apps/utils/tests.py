@@ -1,9 +1,10 @@
 from datetime import date, time
 
+from django.db.models.deletion import ProtectedError
 from rest_framework.test import APIClient, APITestCase
 
 from apps.company.models import Company, CompanyGroup
-from apps.config.models import SystemConfig
+from apps.config.models import SystemConfig, SystemLog
 from apps.documents.models import Document
 from apps.user.models import User
 
@@ -63,6 +64,37 @@ class TenantIsolationTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([row["n"] for row in response.json()], ["A-INV"])
 
+    def test_platform_admin_explicit_company_survives_stale_group_header(self):
+        platform_admin = User.objects.create_superuser("stale-group@example.com", "secret")
+        self.client.force_authenticate(platform_admin)
+        response = self.client.get(
+            "/api/config",
+            HTTP_X_COMPANY_ID=str(self.company_a.id),
+            HTTP_X_BUSINESS_GROUP_ID="9d30ab9d-2bbd-4490-a1f2-000000000000",
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(SystemConfig.objects.get().company_id, self.company_a.id)
+
+    def test_log_api_exposes_detail_severity_as_top_level_fields(self):
+        log = SystemLog.objects.create(
+            company=self.company_a,
+            action="SERVER_WARNING",
+            entity="API",
+            detail={
+                "level": "WARNING",
+                "category": "SERVER_API",
+                "message": "Upstream response exceeded the warning threshold.",
+            },
+        )
+        self.client.force_authenticate(self.user_a)
+        response = self.client.get("/api/config/logs", HTTP_X_COMPANY_ID=str(self.company_a.id))
+        self.assertEqual(response.status_code, 200, response.json())
+        rows = response.json().get("results", response.json())
+        serialized = next(row for row in rows if row["id"] == str(log.id))
+        self.assertEqual(serialized["level"], "WARN")
+        self.assertEqual(serialized["category"], "SERVER_API")
+        self.assertEqual(serialized["message"], "Upstream response exceeded the warning threshold.")
+
     def test_platform_admin_can_create_group_and_standalone_company(self):
         platform_admin = User.objects.create_superuser("platform2@example.com", "secret")
         self.client.force_authenticate(platform_admin)
@@ -108,6 +140,13 @@ class TenantIsolationTests(APITestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["company_count"], 1)
         self.assertTrue(CompanyGroup.objects.filter(pk=group.id).exists())
+
+    def test_occupied_group_cannot_be_deleted_through_django_model(self):
+        group = self.company_a.company_group
+        with self.assertRaises(ProtectedError):
+            group.delete()
+        self.company_a.refresh_from_db()
+        self.assertEqual(self.company_a.company_group_id, group.id)
 
     def test_empty_group_can_be_edited_and_deleted_by_platform_admin(self):
         platform_admin = User.objects.create_superuser("platform6@example.com", "secret")

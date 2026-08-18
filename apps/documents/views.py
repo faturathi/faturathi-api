@@ -16,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
 from apps.config import services as config_services
+from apps.config.models import ErpDeliveryConfig
 from apps.company.models import CompanyBranch
 from apps.peppol import services as peppol_services
 from apps.utils.constants import DOCUMENT_TYPE_CATALOG
@@ -296,10 +297,28 @@ class InvoiceViewSet(viewsets.ViewSet):
             return Response(compat.to_compat(doc))
         if doc.ap_status == AP_STATUS_LABELS["rejected"]:
             raise ValidationError({"status": ["A rejected AP document must be corrected before approval."]})
+        targets = ErpDeliveryConfig.objects.filter(company=doc.company, is_active=True)
+        delivery_target = targets.filter(branch_id=doc.branch_id).first() if doc.branch_id else None
+        if delivery_target is None:
+            delivery_target = targets.filter(branch__isnull=True).first()
+        extra_data = dict(doc.extra_data or {})
+        extra_data["erp_delivery"] = {
+            "status": "CONFIGURED_FOR_DELIVERY" if delivery_target else "CONFIGURATION_REQUIRED",
+            "configuration_id": str(delivery_target.id) if delivery_target else None,
+            "configuration_name": delivery_target.name if delivery_target else None,
+            "scope": delivery_target.branch.code if delivery_target and delivery_target.branch_id else "COMPANY",
+        }
         doc.ap_status = AP_STATUS_LABELS["approved"]
-        doc.save(update_fields=["ap_status"])
-        config_services.log(request, "AP_APPROVE", entity="Document", entity_id=doc.invoice_number)
-        return Response(compat.to_compat(doc))
+        doc.erp_system = delivery_target.name if delivery_target else doc.erp_system
+        doc.extra_data = extra_data
+        doc.save(update_fields=["ap_status", "erp_system", "extra_data"])
+        config_services.log(
+            request, "AP_APPROVE", entity="Document", entity_id=doc.invoice_number,
+            erp_delivery=extra_data["erp_delivery"],
+        )
+        payload = compat.to_compat(doc)
+        payload["erpDelivery"] = extra_data["erp_delivery"]
+        return Response(payload)
 
     @action(detail=True, methods=["post"])
     def reject(self, request, invoice_number=None):

@@ -31,6 +31,7 @@ def _user_payload(user: User) -> dict:
         "email": user.email,
         "name": name,
         "role": user.role,
+        "designation": user.designation,
         "branch": user.branch,
         "entityId": user.company.short_code if user.company_id else "ALL",
     }

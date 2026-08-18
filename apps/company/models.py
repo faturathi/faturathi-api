@@ -39,7 +39,7 @@ class Company(BaseModel):
     ENTITY_TYPE_CHOICES = [("HQ", "HQ"), ("SUBSIDIARY", "Subsidiary"), ("BRANCH", "Branch")]
 
     company_group = models.ForeignKey(
-        CompanyGroup, null=True, blank=True, on_delete=models.SET_NULL, related_name="companies")
+        CompanyGroup, null=True, blank=True, on_delete=models.PROTECT, related_name="companies")
     short_code = models.CharField(max_length=4, blank=True)  # "E1", "E2", "E3"
     name_en = models.CharField(max_length=200)
     name_ar = models.CharField(max_length=200, blank=True)

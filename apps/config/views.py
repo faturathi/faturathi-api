@@ -2,15 +2,15 @@ from django.core.management import call_command
 import hashlib
 import secrets
 from django_filters import rest_framework as df_filters
-from rest_framework import generics
+from rest_framework import generics, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from . import services
-from .models import ApiCredential, SupportTicket, SystemConfig, SystemLog
-from .serializers import SupportTicketSerializer, SystemConfigSerializer, SystemLogSerializer
-from apps.utils.permissions import IsPlatformAdmin, IsTenantAdministrator, ResolveActiveCompany, resolve_write_company
+from .models import ApiCredential, ErpDeliveryConfig, SupportTicket, SystemConfig, SystemLog
+from .serializers import ErpDeliveryConfigSerializer, SupportTicketSerializer, SystemConfigSerializer, SystemLogSerializer
+from apps.utils.permissions import CanManageErpDeliveryConfig, IsPlatformAdmin, IsTenantAdministrator, ResolveActiveCompany, resolve_write_company
 from apps.utils.openapi import GenericApiSerializer
 from apps.user.models import User
 
@@ -98,6 +98,42 @@ class ApiCredentialView(APIView):
             "refreshToken": str(refresh), "createdAt": credential.created_at.date().isoformat(),
             "warning": "Copy these secrets now. The API key cannot be retrieved again.",
         }, status=201)
+
+
+class ErpDeliveryConfigViewSet(viewsets.ModelViewSet):
+    serializer_class = ErpDeliveryConfigSerializer
+    permission_classes = [ResolveActiveCompany, CanManageErpDeliveryConfig]
+
+    def get_queryset(self):
+        queryset = ErpDeliveryConfig.objects.filter(
+            company_id__in=getattr(self.request, "active_company_ids", [])
+        ).select_related("company", "branch")
+        company_id = self.request.query_params.get("company")
+        if company_id:
+            queryset = queryset.filter(company_id=company_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        company = resolve_write_company(self.request, self.request.data)
+        config = serializer.save(company=company, created_by=self.request.user)
+        services.log(
+            self.request, "ERP_DELIVERY_CONFIG_CREATE", entity="ErpDeliveryConfig",
+            entity_id=config.id, branch=str(config.branch_id or "CENTRAL"),
+        )
+
+    def perform_update(self, serializer):
+        config = serializer.save()
+        services.log(
+            self.request, "ERP_DELIVERY_CONFIG_UPDATE", entity="ErpDeliveryConfig",
+            entity_id=config.id, branch=str(config.branch_id or "CENTRAL"),
+        )
+
+    def perform_destroy(self, instance):
+        services.log(
+            self.request, "ERP_DELIVERY_CONFIG_DELETE", entity="ErpDeliveryConfig",
+            entity_id=instance.id, branch=str(instance.branch_id or "CENTRAL"),
+        )
+        instance.soft_delete()
 
 
 class WhoAmIView(APIView):

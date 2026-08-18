@@ -47,6 +47,55 @@ class ApiCredential(TenantModel):
     is_active = models.BooleanField(default=True)
 
 
+class ErpDeliveryConfig(TenantModel):
+    """Outbound AP-invoice delivery target at company level or for one operational branch."""
+
+    AUTH_CHOICES = [
+        ("NONE", "No authentication"),
+        ("BEARER", "Bearer token"),
+        ("API_KEY", "API key header"),
+        ("BASIC", "Basic authentication"),
+        ("OAUTH2", "OAuth 2 token"),
+    ]
+    METHOD_CHOICES = [(value, value) for value in ("POST", "PUT", "PATCH")]
+
+    branch = models.ForeignKey(
+        "company.CompanyBranch", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="erp_delivery_configs",
+        help_text="Blank means the company-level centralized ERP target.",
+    )
+    name = models.CharField(max_length=120)
+    base_url = models.URLField(max_length=500)
+    endpoint_path = models.CharField(max_length=240, default="/api/accounts-payable/invoices")
+    http_method = models.CharField(max_length=8, choices=METHOD_CHOICES, default="POST")
+    auth_type = models.CharField(max_length=12, choices=AUTH_CHOICES, default="BEARER")
+    auth_header_name = models.CharField(max_length=80, default="Authorization")
+    auth_token = models.TextField(blank=True)
+    username = models.CharField(max_length=120, blank=True)
+    custom_headers = models.JSONField(default=dict, blank=True)
+    payload_template = models.JSONField(default=dict, blank=True)
+    timeout_seconds = models.PositiveSmallIntegerField(default=30)
+    is_active = models.BooleanField(default=True)
+
+    class Meta(TenantModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company"],
+                condition=models.Q(branch__isnull=True, is_deleted=False),
+                name="uniq_company_central_erp_delivery",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "branch"],
+                condition=models.Q(branch__isnull=False, is_deleted=False),
+                name="uniq_company_branch_erp_delivery",
+            ),
+        ]
+
+    def __str__(self):
+        scope = self.branch.code if self.branch_id else "Company central"
+        return f"{self.company} · {scope} · {self.name}"
+
+
 class SupportTicket(TenantModel):
     CATEGORY_CHOICES = [("TECHNICAL", "Technical"), ("BILLING", "Billing"), ("PEPPOL", "Peppol / OTA"), ("DATA", "Data / archive")]
     STATUS_CHOICES = [("OPEN", "Open"), ("IN_PROGRESS", "In progress"), ("RESOLVED", "Resolved")]

@@ -3,7 +3,8 @@ from datetime import date, time
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from apps.company.models import Company
+from apps.company.models import Company, CompanyBranch
+from apps.config.models import ErpDeliveryConfig
 from apps.user.models import User
 from apps.utils.constants import DOCUMENT_TYPE_CATALOG
 
@@ -141,6 +142,29 @@ class DocumentArchitectureTests(TestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.json()["apStatus"], "Approved · posted to ERP")
         self.assertEqual(second.status_code, 200)
+
+    def test_ap_approval_prefers_branch_erp_target_over_company_central_target(self):
+        branch = CompanyBranch.objects.create(company=self.company, code="MCT-01", name="Muscat")
+        ErpDeliveryConfig.objects.create(
+            company=self.company, name="Central SAP", base_url="https://central.example.com",
+        )
+        branch_target = ErpDeliveryConfig.objects.create(
+            company=self.company, branch=branch, name="Branch Odoo",
+            base_url="https://branch.example.com",
+        )
+        document = Document.objects.create(
+            company=self.company, branch=branch, created_by=self.user, direction="AP",
+            document_type="SELF_BILLED_389", invoice_number="AP-BRANCH-ERP-1",
+            issue_date=date.today(), issue_time=time(10), counterparty_name="Supplier LLC",
+            ap_status="Pending Approver Review",
+        )
+        client = APIClient()
+        client.force_authenticate(self.user)
+        response = client.post(f"/api/invoices/{document.id}/approve", {}, format="json")
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["erpDelivery"]["configuration_id"], str(branch_target.id))
+        document.refresh_from_db()
+        self.assertEqual(document.erp_system, "Branch Odoo")
 
     def test_ar_document_cannot_be_approved_as_ap(self):
         document = Document.objects.create(
