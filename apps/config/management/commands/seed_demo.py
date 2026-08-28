@@ -11,8 +11,9 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.company.models import Company, CompanyGroup, Customer
+from apps.company.models import Company, CompanyBranch, CompanyGroup, Customer
 from apps.config.models import SystemConfig, SystemLog
+from apps.config.demo_logs import populate_demo_logs
 from apps.documents.models import Document, DocumentLine
 from apps.documents.pint_om import build_pint_payload, refresh_pint_snapshot
 from apps.documents.services import recompute_totals
@@ -91,6 +92,14 @@ SEED_INVOICES = [
          notes="Adjustment reference: IIS-2026-07-0042 — service scope reduced, partial credit issued.",
          ent="E1", sVat="OM1100123456", erp_system="SAP S/4HANA", channel="Manual Entry",
          lines=[("Service credit adjustment", 1, "-500.000", "S")]),
+    dict(n="DN-2026-07-0013", d="2026-07-25", t="12:10:00", direction="AR", doc_type="383",
+         document_type="DEBIT_NOTE_383",
+         cp="Johnson & Co. Ltd (Oman)", cpv="OM1100654321", eas="0248:OM1100654321",
+         net="250.000", vat="12.500", status="VALIDATED", tt="10000000000000000000",
+         uuid="3d4e5f6a-7b8c-4901-8d2e-4f5a6b7c8901", cat="S", cn_ref="IIS-2026-07-0042",
+         notes="Additional implementation effort approved against the original invoice.",
+         ent="E1", sVat="OM1100123456", erp_system="Faturathi Quick Creator", channel="Manual Entry",
+         lines=[("Approved implementation scope extension", 1, "250.000", "S")]),
     dict(n="PINV-2026-07-0099", d="2026-07-24", t="08:15:00", direction="AP", doc_type="380",
          cp="Alfaris Business Solutions", cpv="OM1100334455", eas="0248:OM1100334455",
          net="3400.000", vat="170.000", status="REPORTED", tt="10000000000000000000",
@@ -108,11 +117,13 @@ class Command(BaseCommand):
         self._wipe()
         group = self._seed_company_group()
         companies = self._seed_companies(group)
+        branches = self._seed_branches(companies)
         users = self._seed_users(companies)
         self._seed_system_configs(companies, users)
         customers = self._seed_customers(companies, users)
-        self._seed_invoices(companies, customers, users)
+        self._seed_invoices(companies, branches, customers, users)
         self._seed_notifications(companies, users)
+        self._seed_logs(companies, users)
         self.stdout.write(self.style.SUCCESS(
             f"Faturathi demo data reseeded: {len(companies)} companies, {len(users)} users, "
             f"{len(SEED_INVOICES)} invoices."
@@ -128,6 +139,7 @@ class Command(BaseCommand):
         SystemLog.all_objects.all().delete()
         SystemConfig.all_objects.all().delete()
         Customer.all_objects.all().delete()
+        CompanyBranch.all_objects.all().delete()
         User.objects.all().delete()
         Company.objects.all().delete()
         CompanyGroup.objects.all().delete()
@@ -159,6 +171,30 @@ class Command(BaseCommand):
             )
             companies[spec["short_code"]] = company
         return companies
+
+    def _seed_branches(self, companies):
+        """Operational outlets that share each legal company's VAT registration."""
+        specs = {
+            "E1": [
+                ("MCT-01", "Muscat Main Branch", "IIS-MCT-", "/OM"),
+                ("SOH-01", "Sohar Branch", "IIS-SOH-", "/OM"),
+                ("SLL-01", "Salalah Branch", "IIS-SLL-", "/OM"),
+            ],
+            "E2": [("SOH-HQ", "Sohar Main Branch", "AAE-SOH-", "/OM")],
+            "E3": [("SLL-HQ", "Salalah Main Branch", "ABS-SLL-", "/OM")],
+        }
+        result = {}
+        for company_code, branch_specs in specs.items():
+            result[company_code] = []
+            for code, name, prefix, suffix in branch_specs:
+                result[company_code].append(CompanyBranch.objects.create(
+                    company=companies[company_code], code=code, name=name,
+                    city="Muscat" if code.startswith("MCT") else "Sohar" if code.startswith("SOH") else "Salalah",
+                    invoice_prefix=prefix, invoice_suffix=suffix,
+                    credit_note_prefix=prefix.replace("IIS-", "CN-").replace("AAE-", "CN-").replace("ABS-", "CN-"),
+                    credit_note_suffix="/CN", next_invoice_number=500,
+                ))
+        return result
 
     def _seed_users(self, companies):
         specs = [
@@ -218,18 +254,22 @@ class Command(BaseCommand):
 
     # -- invoices -------------------------------------------------------------
 
-    def _seed_invoices(self, companies, customers, users):
+    def _seed_invoices(self, companies, branches, customers, users):
         admin_user = users["superadmin@faturathi.netbue.om"]
         created_by_number = {}
 
+        branch_counters = {code: 0 for code in branches}
         for spec in SEED_INVOICES:
             company = companies[spec["ent"]]
+            company_branches = branches.get(spec["ent"], [])
+            branch = company_branches[branch_counters[spec["ent"]] % len(company_branches)] if company_branches else None
+            branch_counters[spec["ent"]] += 1
             issue_date = datetime.strptime(spec["d"], "%Y-%m-%d").date()
             issue_time = datetime.strptime(spec["t"], "%H:%M:%S").time()
             customer = customers.get((spec["ent"], spec["cp"]))
 
             document = Document.objects.create(
-                company=company, created_by=admin_user,
+                company=company, branch=branch, created_by=admin_user,
                 direction=spec["direction"], document_type=spec.get("document_type", "STANDARD_380"),
                 is_export=spec.get("is_export", False),
                 invoice_number=spec["n"], issue_date=issue_date, issue_time=issue_time,
@@ -281,13 +321,19 @@ class Command(BaseCommand):
             )
             return
 
-        final_status = "AS4_SENT" if spec["status"] == "SENT" else "MLS_RECEIVED"
+        final_status = {
+            "DRAFT": "QUEUED", "VALIDATED": "VALIDATED", "PENDING": "QUEUED",
+            "SUBMITTED": "VALIDATING", "SENT": "AS4_SENT", "REPORTED": "MLS_RECEIVED",
+        }.get(spec["status"], "QUEUED")
+        sent = final_status in {"AS4_SENT", "ACK_RECEIVED", "TDD_REPORTED", "MLS_RECEIVED"}
+        acknowledged = final_status in {"ACK_RECEIVED", "TDD_REPORTED", "MLS_RECEIVED"}
         Transmission.objects.create(
             company=document.company, created_by=admin_user, document=document, attempt=1,
             status=final_status, payload=payload,
-            sent_at=now, acked_at=None if final_status == "AS4_SENT" else now,
-            reported_at=None if final_status == "AS4_SENT" else now,
-            ota_response_code="OK", mls_status="" if final_status == "AS4_SENT" else "AB",
+            sent_at=now if sent else None, acked_at=now if acknowledged else None,
+            reported_at=now if final_status == "MLS_RECEIVED" else None,
+            ota_response_code="OK" if final_status not in {"QUEUED", "VALIDATING"} else "",
+            mls_status="AB" if final_status == "MLS_RECEIVED" else "",
         )
 
     # -- notifications ----------------------------------------------------
@@ -304,3 +350,6 @@ class Command(BaseCommand):
             title="AP Invoice Approved", level="INFO",
             message="PINV-2026-07-0099 was approved and posted to ERP.",
         )
+
+    def _seed_logs(self, companies, users):
+        populate_demo_logs(companies=companies.values(), clear_demo=True)

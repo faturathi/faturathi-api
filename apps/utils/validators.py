@@ -49,7 +49,8 @@ def validate_document(document) -> list[dict]:
                                 BR_O_02_MESSAGE.format(vatin=document.counterparty_vatin)))
 
     # 3. SELLER-VATIN
-    seller_vatin = document.company.vat_number if document.company_id else ""
+    seller_vatin = (document.counterparty_vatin if document.direction == "AP"
+                    else document.company.vat_number if document.company_id else "")
     if not re.match(SELLER_VATIN_REGEX, seller_vatin or ""):
         errors.append(_err("SELLER-VATIN", "company.vat_number", "C5",
                             f"Seller VATIN '{seller_vatin}' must start with 'OM' followed by 8-12 digits."))

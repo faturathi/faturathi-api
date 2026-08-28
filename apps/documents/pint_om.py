@@ -2,7 +2,7 @@
 
 The relational columns remain the searchable source of truth for operational fields.  The
 ``extra_data.pint_om`` snapshot contains the complete OTA-facing representation, including
-conditional/optional members from the April 2026 73-field reference guide.
+conditional/optional members retained for backwards compatibility with the legacy API.
 """
 
 from collections import defaultdict
@@ -62,6 +62,13 @@ def build_pint_payload(document) -> dict:
     buyer_supplied = supplied.get("BuyerDetails", {}) if isinstance(supplied, dict) else {}
     payment_supplied = supplied.get("PaymentDetails", {}) if isinstance(supplied, dict) else {}
     allowance_supplied = supplied.get("DocumentAllowancesCharges", {}) if isinstance(supplied, dict) else {}
+    is_ap = document.direction == "AP"
+    seller_name = document.counterparty_name if is_ap else company.name_en
+    seller_vatin = document.counterparty_vatin if is_ap else company.vat_number
+    seller_endpoint = document.counterparty_endpoint if is_ap else company.peppol_participant_id
+    buyer_name = company.name_en if is_ap else document.counterparty_name
+    buyer_vatin = company.vat_number if is_ap else document.counterparty_vatin
+    buyer_endpoint = company.peppol_participant_id if is_ap else document.counterparty_endpoint
 
     return {
         "BTOM_001_OmanTransactionType": document.transaction_type_code,
@@ -76,31 +83,31 @@ def build_pint_payload(document) -> dict:
         "IBT_005_InvoiceCurrencyCode": document.currency,
         "IBT_006_VATAccountingCurrency": supplied.get("IBT_006_VATAccountingCurrency", "OMR"),
         "SellerDetails": {
-            "IBT_027_SellerName": company.name_en,
-            "IBT_034_SellerIdentifier": company.vat_number,
+            "IBT_027_SellerName": seller_name,
+            "IBT_034_SellerIdentifier": seller_vatin,
             "IBT_034_1_SellerIdentifierScheme": "0248",
-            "IBT_031_SellerVATIdentifier": company.vat_number,
+            "IBT_031_SellerVATIdentifier": seller_vatin,
             "IBT_031_1_SellerVATScheme": "VAT",
-            "IBT_028_SellerTradingName": seller_supplied.get("IBT_028_SellerTradingName", company.name_en),
-            "IBT_035_SellerAddressLine1": seller_supplied.get("IBT_035_SellerAddressLine1", company.address),
-            "IBT_037_SellerCity": seller_supplied.get("IBT_037_SellerCity", company.city),
-            "IBT_038_SellerPostCode": seller_supplied.get("IBT_038_SellerPostCode", company.postal_code),
-            "IBT_040_SellerCountryCode": seller_supplied.get("IBT_040_SellerCountryCode", company.country_code),
-            "IBT_034_SellerElectronicAddress": company.peppol_participant_id,
+            "IBT_028_SellerTradingName": seller_supplied.get("IBT_028_SellerTradingName", seller_name),
+            "IBT_035_SellerAddressLine1": seller_supplied.get("IBT_035_SellerAddressLine1", "" if is_ap else company.address),
+            "IBT_037_SellerCity": seller_supplied.get("IBT_037_SellerCity", "" if is_ap else company.city),
+            "IBT_038_SellerPostCode": seller_supplied.get("IBT_038_SellerPostCode", "" if is_ap else company.postal_code),
+            "IBT_040_SellerCountryCode": seller_supplied.get("IBT_040_SellerCountryCode", "OM" if is_ap else company.country_code),
+            "IBT_034_SellerElectronicAddress": seller_endpoint,
             "IBT_034_1_SellerElectronicAddressScheme": "0248",
         },
         "BuyerDetails": {
-            "IBT_044_BuyerName": document.counterparty_name,
-            "IBT_049_BuyerIdentifier": document.counterparty_vatin,
+            "IBT_044_BuyerName": buyer_name,
+            "IBT_049_BuyerIdentifier": buyer_vatin,
             "IBT_049_1_BuyerIdentifierScheme": "0248",
-            "IBT_048_BuyerVATIdentifier": document.counterparty_vatin,
+            "IBT_048_BuyerVATIdentifier": buyer_vatin,
             "IBT_048_1_BuyerVATScheme": "VAT",
-            "IBT_045_BuyerTradingName": buyer_supplied.get("IBT_045_BuyerTradingName", document.counterparty_name),
-            "IBT_050_BuyerAddressLine1": buyer_supplied.get("IBT_050_BuyerAddressLine1", ""),
-            "IBT_052_BuyerCity": buyer_supplied.get("IBT_052_BuyerCity", ""),
-            "IBT_053_BuyerPostCode": buyer_supplied.get("IBT_053_BuyerPostCode", ""),
+            "IBT_045_BuyerTradingName": buyer_supplied.get("IBT_045_BuyerTradingName", buyer_name),
+            "IBT_050_BuyerAddressLine1": buyer_supplied.get("IBT_050_BuyerAddressLine1", company.address if is_ap else ""),
+            "IBT_052_BuyerCity": buyer_supplied.get("IBT_052_BuyerCity", company.city if is_ap else ""),
+            "IBT_053_BuyerPostCode": buyer_supplied.get("IBT_053_BuyerPostCode", company.postal_code if is_ap else ""),
             "IBT_055_BuyerCountryCode": buyer_supplied.get("IBT_055_BuyerCountryCode", "OM"),
-            "IBT_049_BuyerElectronicAddress": document.counterparty_endpoint,
+            "IBT_049_BuyerElectronicAddress": buyer_endpoint,
         },
         "PaymentDetails": {
             "IBT_081_PaymentMeansCode": document.payment_means_code,
@@ -134,6 +141,9 @@ def build_pint_payload(document) -> dict:
             "created_by": document.created_by.email if document.created_by_id else "",
             "created_at": document.created_at.isoformat() if document.created_at else "",
             "status": document.status,
+            "branch_id": str(document.branch_id) if document.branch_id else "",
+            "branch_code": document.branch.code if document.branch_id else "",
+            "branch_name": document.branch.name if document.branch_id else "",
         },
     }
 

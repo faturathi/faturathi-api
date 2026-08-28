@@ -24,7 +24,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             "id", "direction", "document_type", "doc_type", "is_b2c", "is_export",
             "invoice_number", "uuid_v5",
             "transaction_type_code", "issue_date", "issue_time", "due_date", "tax_point_date",
-            "customer", "counterparty_name", "counterparty_vatin", "counterparty_endpoint",
+            "customer", "branch", "counterparty_name", "counterparty_vatin", "counterparty_endpoint",
             "currency", "line_extension_amount", "allowance_total", "charge_total",
             "tax_exclusive_amount", "tax_amount", "tax_inclusive_amount", "payable_amount",
             "payment_means_code", "payment_iban", "payment_terms", "status", "billing_reference",
@@ -45,6 +45,16 @@ class DocumentSerializer(serializers.ModelSerializer):
         recompute_totals(document)
         refresh_pint_snapshot(document)
         return document
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        branch = attrs.get("branch", getattr(self.instance, "branch", None))
+        company = attrs.get("company", getattr(self.instance, "company", None))
+        if branch and company and branch.company_id != company.id:
+            raise serializers.ValidationError({
+                "branch": ["The selected branch does not belong to this document's company."]
+            })
+        return attrs
 
     def update(self, instance, validated_data):
         lines_data = validated_data.pop("lines", None)

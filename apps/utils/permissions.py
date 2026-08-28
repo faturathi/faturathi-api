@@ -18,6 +18,20 @@ class IsTenantAdministrator(BasePermission):
         return getattr(request.user, "role", "") in {"ADMIN", "SUPERADMIN"} or getattr(request.user, "is_superuser", False)
 
 
+class CanManageErpDeliveryConfig(BasePermission):
+    """Restrict outbound customer-ERP credentials to trusted technical operators."""
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            return False
+        if is_platform_admin(user):
+            return True
+        designation = str(getattr(user, "designation", "")).casefold()
+        is_technical_staff = any(term in designation for term in ("technical", "support", "dealer"))
+        return getattr(user, "role", "") == "ADMIN" and is_technical_staff
+
+
 class CanOperateDocuments(BasePermission):
     """Viewers are read-only; makers edit; approvers submit/approve; admins can do both."""
 
@@ -30,7 +44,7 @@ class CanOperateDocuments(BasePermission):
         if getattr(request.user, "is_superuser", False) or role in {"ADMIN", "SUPERADMIN"}:
             return True
         action = getattr(view, "action", None)
-        if action in {"submit", "approve"}:
+        if action in {"submit", "approve", "reject", "query"}:
             return role == "APPROVER"
         if action in {"create", "partial_update", "destroy", "validate", "resubmit", "cancel", "inbound", "ap_alias"}:
             return role in {"MAKER", "APPROVER"}
@@ -67,18 +81,34 @@ class ResolveActiveCompany(BasePermission):
 
         own_company = user.company
         header_value = request.headers.get("X-Company-ID")
+        group_header = request.headers.get("X-Business-Group-ID")
 
         if own_company is None and is_platform_admin(user):
-            all_companies = Company.objects.filter(is_active=True)
-            request.active_company_ids = list(all_companies.values_list("id", flat=True))
+            # A concrete company selection is authoritative. Resolve it before applying
+            # the optional group header so a stale/deleted group stored by the SPA cannot
+            # hide an otherwise valid company and make tenant-owned singleton endpoints
+            # (such as /api/config) fail with "Select one company".
+            all_active_companies = Company.objects.filter(is_active=True)
             if header_value and header_value != "group":
                 try:
-                    picked = all_companies.filter(pk=header_value).first()
+                    picked = all_active_companies.filter(pk=header_value).first()
                 except (ValueError, TypeError, DjangoValidationError):
-                    picked = all_companies.filter(short_code=header_value).first()
+                    picked = all_active_companies.filter(short_code=header_value).first()
                 if picked:
                     request.active_company = picked
                     request.active_company_ids = [picked.id]
+                    return True
+
+            all_companies = all_active_companies
+            if group_header:
+                if group_header == "standalone":
+                    all_companies = all_companies.filter(company_group__isnull=True)
+                else:
+                    try:
+                        all_companies = all_companies.filter(company_group_id=group_header)
+                    except (ValueError, TypeError, DjangoValidationError):
+                        all_companies = all_companies.none()
+            request.active_company_ids = list(all_companies.values_list("id", flat=True))
             return True
 
         if own_company is None:

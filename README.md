@@ -45,7 +45,9 @@ RLS or schema-per-tenant isolation can be added later as defense in depth, but e
 separate connection/session and migration design.
 
 Clients select one legal entity with the `X-Company-ID` header (company UUID or short code). The
-special value `group` permits a user to work across companies in their own business group.
+special value `group` permits a user to work across companies in their own business group. A
+platform administrator must additionally send `X-Business-Group-ID: <group UUID>`; this scopes the
+company list and makes `X-Company-ID: group` mean the selected tenant, never the whole platform.
 
 ## Local setup
 
@@ -56,7 +58,7 @@ python -m venv venv
 pip install -r requirements.txt
 Copy-Item .env.example .env
 python manage.py migrate
-python manage.py seed_demo
+python manage.py seed_uat_demo
 python manage.py runserver 8000
 ```
 
@@ -72,8 +74,9 @@ DB_PORT=5432
 
 ## Sample data
 
-`python manage.py seed_demo` is destructive: it clears and recreates demo data. It is permitted only
-when `ALLOW_SEED_RESET=True`; production should always set it to `False`.
+Use `python manage.py seed_uat_demo` for a new, empty UAT database. It refuses to modify an
+environment that already contains companies or business groups unless the explicit `--reset`
+option is supplied.
 
 The seed contains:
 
@@ -81,8 +84,10 @@ The seed contains:
 - 3 legal companies
 - 5 users
 - 11 customers including walk-in customers
-- 10 documents and their Peppol transmission histories
-- Standard invoice, credit note, AR, AP, reported, sent and rejected examples
+- 11 documents and their Peppol transmission histories
+- Standard invoices, credit note, debit note, AR and AP examples
+- Validated, sent, reported and rejected document/transmission states
+- Security, validation, upload, ERP, Peppol, OTA, server, report and system logs
 
 Demo credentials:
 
@@ -93,7 +98,146 @@ MFA code:      582910
 ```
 
 The `sample_data/` directory contains CSV examples for all six document profiles and a formatted
-Excel workbook containing the 73-field OTA reference structure.
+Excel workbook containing transaction-dependent PINT-OM business-term examples.
+
+## Django management commands and demonstration data
+
+Run management commands from the backend directory after activating the virtual environment and
+configuring the PostgreSQL connection:
+
+```powershell
+cd D:\Projects\Faturathi\backend
+.\venv\Scripts\Activate.ps1
+python manage.py migrate --noinput
+```
+
+On Linux, EC2 or Elastic Beanstalk, use the environment's Python executable, for example:
+
+```bash
+cd /srv/faturathi/backend
+/srv/faturathi/venv/bin/python manage.py migrate --noinput
+```
+
+### Populate a new UAT database safely
+
+```powershell
+python manage.py seed_uat_demo
+```
+
+`seed_uat_demo` is the recommended UAT command. It creates the complete demonstration dataset when
+the database has no company/group business data. When existing business data is detected, it exits
+with an error and does not change anything.
+
+The generated dataset includes:
+
+- One Oman VAT/business group with an OM12 group VATIN
+- Three tenant companies with separate OM11 VATINs and Peppol participant identifiers
+- Platform administrator, tenant administrator, approver, maker and viewer accounts
+- Tenant-level `SystemConfig` rows and walk-in/registered customers
+- Standard AR invoices from manual, REST API, ERP, SFTP and spreadsheet sources
+- An AP inbound invoice, credit note and debit note with billing references
+- Document lines, calculated VAT totals and canonical PINT-OM JSON snapshots
+- Queued/validated, AS4-sent, MLS-reported and OTA-rejected transmission examples
+- User notifications and operational audit entries
+- A complete operational log matrix for User Activity, OTA/AS4, Server/API and Error/Warning
+  categories at INFO, WARN, ERROR, AUDIT and TRANSMISSION levels
+
+This data powers the dashboard counts, invoice register, AR/AP views, lifecycle reports,
+transmission screens, notifications and system-log screens.
+
+### Replace an existing environment with UAT data
+
+```powershell
+python manage.py seed_uat_demo --reset
+```
+
+> **Destructive operation:** `--reset` deletes existing application users, groups, companies,
+> customers, documents, transmissions, configurations, notifications and logs before recreating
+> the demonstration dataset. Take a verified database backup first. Never run this command against
+> a production database.
+
+### Low-level demo reset command
+
+```powershell
+python manage.py seed_demo
+```
+
+`seed_demo` is the low-level reset used internally by `seed_uat_demo`. It always wipes and rebuilds
+the application dataset and does not perform the existing-business-data safety check. Prefer
+`seed_uat_demo` for deployment scripts and operator use.
+
+The `ALLOW_SEED_RESET` setting protects only the HTTP reset endpoints (`/api/config/reset-seeds`,
+`/api/reset-db` and `/api/clear`). It does not prevent a server operator with shell access from
+running `seed_demo`. Production must set `ALLOW_SEED_RESET=False` and restrict shell/SSH access.
+
+### Populate or refresh demonstration logs only
+
+Run the dedicated command when companies and users already exist and you only need log data for
+the portal's System Logs, reports, filters and charts:
+
+```powershell
+python manage.py seed_demo_logs
+```
+
+The command creates 20 deterministic log scenarios for every active company. It covers these
+categories:
+
+- `USER_ACTIVITY` — login, authorization, profile changes and user document submission
+- `OTA_AS4` — OTA status, AS4 warnings/rejections, evidence and acknowledgements
+- `SERVER_API` — REST requests, connector credentials, API warnings/timeouts and ingestion
+- `ERROR_WARNING` — validation results, warnings, exceptions, reviews and retries
+
+Every category contains all five demo levels: `INFO`, `WARN`, `ERROR`, `AUDIT` and
+`TRANSMISSION`. Each record stores the category, level/severity, human-readable message, demo
+marker and source in `SystemLog.detail`. Timestamps are distributed across recent history so date
+filters and dashboard charts show meaningful data.
+
+The command is idempotent: running it again refreshes the same identified demo rows instead of
+adding duplicates. To delete and rebuild **only management-command demo logs**, while preserving
+real application audit records, run:
+
+```powershell
+python manage.py seed_demo_logs --clear-demo
+```
+
+To populate logs for one tenant company only:
+
+```powershell
+python manage.py seed_demo_logs --company E1
+```
+
+`seed_uat_demo` and `seed_demo` also invoke this log generator automatically. Therefore, a newly
+seeded three-company UAT environment contains 60 matrix log rows without running a second command.
+
+### Verify the populated data
+
+```powershell
+python manage.py shell -c "from apps.company.models import CompanyGroup,Company; from apps.documents.models import Document; from apps.peppol.models import Transmission; from apps.config.models import SystemLog; from apps.user.models import User; print({'groups':CompanyGroup.objects.count(),'companies':Company.objects.count(),'users':User.objects.count(),'documents':Document.objects.count(),'transmissions':Transmission.objects.count(),'logs':SystemLog.objects.count()})"
+```
+
+Expected base totals are one group, three companies, five users, eleven documents, eleven
+transmissions and 60 demonstration system logs. Additional API activity may increase logs and
+notifications.
+
+Useful inspection commands:
+
+```powershell
+python manage.py showmigrations
+python manage.py check
+python manage.py shell -c "from apps.documents.models import Document; print(list(Document.objects.values_list('invoice_number','document_type','status','source')))"
+python manage.py shell -c "from apps.config.models import SystemLog; print(list(SystemLog.objects.values_list('action','entity','detail')))"
+python manage.py shell -c "from apps.config.models import SystemLog; from django.db.models import Count; print(list(SystemLog.objects.values('detail__category','detail__level').annotate(total=Count('id')).order_by('detail__category','detail__level')))"
+```
+
+### Create a production administrator without sample data
+
+For production, do not run either seed command. Apply migrations and create a dedicated
+administrator instead:
+
+```powershell
+python manage.py migrate --noinput
+python manage.py createsuperuser
+```
 
 ## Document types
 
@@ -109,11 +253,18 @@ Excel workbook containing the 73-field OTA reference structure.
 Important operational fields are relational for filtering and reports. Long-tail OTA data is stored
 in `Document.extra_data`; the canonical representation is available under `extra_data.pint_om`.
 
+## API versioning
+
+Every endpoint below is mounted at both `/api/v1/...` (current) and the unversioned `/api/...`
+(kept as a permanent alias — both resolve to the identical view, so existing integrations, the
+faturathi-billing desktop app, and any external ERP connector configured against the old path
+keep working without changes). New integrations should target `/api/v1/`.
+
 ## Authentication and Swagger
 
-- OpenAPI schema: `GET /api/schema`
-- Swagger UI: `GET /api/docs`
-- ReDoc: `GET /api/redoc`
+- OpenAPI schema: `GET /api/v1/schema`
+- Swagger UI: `GET /api/v1/docs`
+- ReDoc: `GET /api/v1/redoc`
 
 Swagger uses the SimpleJWT bearer security scheme. Log in, copy the access token, select
 **Authorize**, and enter:
@@ -125,57 +276,91 @@ Bearer <access-token>
 Authentication flow:
 
 ```http
-POST /api/auth/login
+POST /api/v1/auth/login
 Content-Type: application/json
 
 {"email":"salim.h@intel-sol.om","password":"Demo@1234"}
 ```
 
-If MFA is required:
+After the password is accepted, the response always requires MFA and returns a short-lived
+`mfa_challenge`. Submit that challenge with the OTP; OTP verification cannot be called directly
+without first validating the password:
 
 ```http
-POST /api/auth/mfa-verify
+POST /api/v1/auth/mfa-verify
 Content-Type: application/json
 
-{"email":"salim.h@intel-sol.om","otp":"582910"}
+{
+  "email":"salim.h@intel-sol.om",
+  "otp":"582910",
+  "mfa_challenge":"<value-returned-by-auth-login>"
+}
 ```
 
 Protected request:
 
 ```http
-GET /api/invoices
+GET /api/v1/invoices
 Authorization: Bearer <access-token>
 X-Company-ID: E1
+```
+
+Machine-to-machine clients (ERP connectors, the faturathi-billing desktop app) authenticate with
+an API key instead of a user/password login:
+
+```http
+GET /api/v1/invoices
+X-API-KEY: <api-key-from-connectors/credentials>
 ```
 
 ## Principal API endpoints
 
 ### Identity and tenant administration
 
-- `POST /api/auth/login`
-- `POST /api/auth/mfa-verify`
-- `GET /api/auth/me`
-- `GET|POST|PATCH|DELETE /api/users`
-- `GET|POST|PATCH|DELETE /api/entities`
-- `GET|POST|PATCH|DELETE /api/company-groups`
-- `GET|POST|PATCH|DELETE /api/customers`
-- `GET|POST|PATCH /api/notifications`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/mfa-verify`
+- `GET /api/v1/auth/me`
+- `GET|POST|PATCH|DELETE /api/v1/users`
+- `GET|POST|PATCH|DELETE /api/v1/entities`
+- `GET|POST|PATCH|DELETE /api/v1/branches` — operational outlets under one legal company;
+  every branch shares the parent company's VATIN/Peppol participant but owns a branch code and
+  invoice/credit-note numbering series
+- `GET|POST|PATCH|DELETE /api/v1/company-groups`
+- `GET|POST|PATCH|DELETE /api/v1/customers`
+- `GET|POST|PATCH /api/v1/notifications`
 
 ### Documents and ingestion
 
-- `GET|POST /api/invoices`
-- `GET|PATCH|DELETE /api/invoices/{uuid}`
-- `POST /api/invoices/{uuid}/validate`
-- `POST /api/invoices/{uuid}/submit`
-- `POST /api/invoices/{uuid}/resubmit`
-- `POST /api/invoices/{uuid}/approve`
-- `POST /api/invoices/{uuid}/cancel`
-- `GET /api/invoices/{uuid}/pint-payload`
-- `POST /api/invoices/inbound`
-- `GET /api/document-types`
-- `POST /api/upload-batch`
-- `POST /api/upload-batch/file`
-- `POST /api/validate`
+- `POST /api/v1/invoices/validate/` — canonical lower-snake-case dry-run pipeline; performs
+  DRF schema validation, PINT semantic checks, JSON-to-UBL 2.1 mapping, shared PINT Schematron
+  and official Oman PINT-OM Schematron. It never writes or transmits.
+- `POST /api/v1/invoices/` — canonical create endpoint. It executes exactly the same pipeline
+  and writes the validated document atomically only after every fatal assertion has passed.
+- `GET|POST /api/v1/invoices` — list supports `?dir=AR|AP`, `?status=`, `?doc_type=`,
+  `?ap_status=pending|approved|query|rejected` (normalized AP approval-pool filter),
+  `?cpv=<vatin>` / `?counterparty_vatin=<vatin>`, `?cr_number=<company CR>`, `?uuid=<uuid_v5>`,
+  and free-text `?search=`
+- `GET|PATCH|DELETE /api/v1/invoices/{uuid}`
+- `POST /api/v1/invoices/{uuid}/validate`
+- `POST /api/v1/invoices/{uuid}/submit`
+- `POST /api/v1/invoices/{uuid}/resubmit`
+- `POST /api/v1/invoices/{uuid}/approve` — sets the normalized AP status to `Approved · posted to ERP`
+- `POST /api/v1/invoices/{uuid}/reject` — sets `Rejected by Approver`; accepts an optional `notes`/`reason`
+- `POST /api/v1/invoices/{uuid}/query` — sets `On Hold Query`; accepts an optional `notes`/`reason`
+- `POST /api/v1/invoices/{uuid}/cancel`
+- `GET /api/v1/invoices/{uuid}/pint-payload`
+- `POST /api/v1/invoices/inbound` (aliased `POST /api/v1/invoices/ap`) — AP inbound ingestion
+  (Peppol C2→C3 simulation). Accepts both the PINT-OM/short-key JSON shape used elsewhere and a
+  Tally-style ERP voucher payload (`VoucherNumber`, `VoucherDate`, `PartyName`,
+  `InventoryEntriesList[{ItemName,BilledQuantity,Rate,Amount}]`, `StatutoryDetails`,
+  `TotalAmount`); a counterparty with no VATIN and no Peppol endpoint anywhere in the payload is
+  now auto-detected as B2C instead of being rejected for a "missing" EAS
+- `GET /api/v1/document-types`
+- `POST /api/v1/upload-batch`
+- `POST /api/v1/upload-batch/file` — multipart CSV/XLSX; rejects files whose content doesn't
+  match their extension (wrong signature, binary garbage, unparseable) with a specific message
+  instead of a raw 500
+- `POST /api/v1/validate` — deprecated compatibility endpoint for legacy PascalCase clients
 
 All creation paths produce the same `Document` and `DocumentLine` records. Manual, REST, ERP,
 SFTP, inbound AP, CSV and XLSX documents therefore appear in the same invoice register, reports,
@@ -183,15 +368,35 @@ logs and Peppol workflow.
 
 ### Peppol, reports and operations
 
-- `GET /api/peppol/transmissions`
-- `GET /api/reports/dashboard`
-- `GET /api/reports/tax-grid`
-- `GET /api/reports/tax-grid/export?format=csv`
-- `GET /api/config`
-- `GET /api/config/logs`
-- `GET /api/health`
+- `GET /api/v1/peppol/transmissions`
+- `GET /api/v1/reports/dashboard`
+- `GET /api/v1/reports/tax-grid`
+- `GET /api/v1/reports/tax-grid?branch=<branch-uuid-or-code>` — branch-filtered document report
+- `GET /api/v1/reports/branch-summary` — document, net, VAT and gross totals per operational branch
+- `GET /api/v1/reports/tax-grid/export?format=csv`
+- `GET /api/v1/reports/archive/export?date_from=&date_to=` — CSV export over the full retained
+  history, up to 10 years back (defaults to the full 10-year window when both params are omitted)
+- `GET /api/v1/config`
+- `GET /api/v1/config/logs`
+- `GET /api/v1/config/whoami` — lightweight authenticated identity check (returns company
+  name/VATIN/CR for the caller's API key or JWT); used by client "Test Connection" features to
+  validate a key/token before it's saved, without depending on any business endpoint
+- `GET /api/v1/health`
 
 Swagger is the authoritative runtime list of endpoints and request/response schemas.
+
+### Error response shape
+
+Unhandled exceptions and DRF validation errors both come back as a consistent envelope instead of
+a bare Django traceback or an ad hoc shape per view:
+
+```json
+{"error": {"code": "ValidationError", "message": "…human-readable…", "fields": {"…": ["…"]}}}
+```
+
+`fields` is `null` when the error isn't a field-level validation error (e.g. an unhandled server
+error, which always reports `code: "SERVER_ERROR"` with a generic message — the real traceback is
+logged server-side, never returned to the client).
 
 ## User roles
 
@@ -244,7 +449,7 @@ React client / ERP / CSV-XLSX / External REST
           |          |          |
      Documents    Reports    Administration
           |
-   PINT-OM validation + canonical 73-field JSON
+   PINT-OM validation + traceable snake_case JSON/UBL
           |
    Peppol transmission / OTA / MLS lifecycle
           |
@@ -267,5 +472,6 @@ python manage.py spectacular --file openapi.yml --validate
 
 ## AWS deployment
 
-See `DEPLOY_AWS_EB.md`. Pushes to `main` run PostgreSQL-backed tests and deploy through the official
-AWS Elastic Beanstalk GitHub Action.
+For EC2/RDS deployment, see `Docs/deployment.txt`. For Elastic Beanstalk, see
+`DEPLOY_AWS_EB.md`. Pushes to `main` run PostgreSQL-backed tests and can deploy through the AWS
+Elastic Beanstalk GitHub workflow.

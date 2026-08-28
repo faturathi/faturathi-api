@@ -42,6 +42,11 @@ class Document(TenantModel):
     # parties (seller = self.company for AR; for AP seller data sits in counterparty_* fields)
     customer = models.ForeignKey(
         "company.Customer", null=True, blank=True, on_delete=models.PROTECT, related_name="documents")
+    branch = models.ForeignKey(
+        "company.CompanyBranch", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="documents",
+        help_text="Operational branch/outlet; shares the document company's VATIN.",
+    )
     counterparty_name = models.CharField(max_length=200, blank=True)
     counterparty_vatin = models.CharField(max_length=14, blank=True)
     counterparty_endpoint = models.CharField(max_length=30, blank=True)
@@ -72,7 +77,7 @@ class Document(TenantModel):
     ap_status = models.CharField(max_length=40, blank=True)  # "Pending Approver Review" / "Approved · posted to ERP"
     erp_system = models.CharField(max_length=40, blank=True)
 
-    # Overflow for the rest of the ~73-field PINT OM spec (addresses, GTIN, allowances/charges
+    # Overflow for transaction-dependent PINT-OM terms (addresses, GTIN, allowances/charges
     # breakdown, delivery info, the raw ingested IBT-named payload, ...). Anything promoted to a
     # real column above should be read from that column, not from here — this is long-tail only.
     extra_data = models.JSONField(default=dict, blank=True)

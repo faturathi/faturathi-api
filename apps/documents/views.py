@@ -1,18 +1,23 @@
 import csv
 import io
+import uuid
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Q
+from django.db import IntegrityError, transaction
+from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 
 from apps.config import services as config_services
+from apps.config.models import ErpDeliveryConfig
+from apps.company.models import CompanyBranch
 from apps.peppol import services as peppol_services
 from apps.utils.constants import DOCUMENT_TYPE_CATALOG
 from apps.utils.permissions import CanOperateDocuments, ResolveActiveCompany, resolve_write_company
@@ -23,11 +28,32 @@ from . import compat
 from .models import Document
 from .serializers import DocumentSerializer
 from .pint_om import refresh_pint_snapshot
+from .pint_contract import PintOmInvoiceSerializer
+from .pint_pipeline import SELF_BILLED_CODES, validate_pint_om_payload
 
 try:
     import openpyxl
 except ImportError:
     openpyxl = None
+
+
+# Normalized AP approval-pool states (item 3/1e). `ap_status` was previously free text set only
+# by `approve`; this keys it so the GET list filter (used by external ERP/desktop pull clients,
+# item 2/4) can reliably select "the approved pool" instead of substring-matching display labels.
+AP_STATUS_LABELS = {
+    "pending": "Pending Approver Review",
+    "approved": "Approved · posted to ERP",
+    "query": "On Hold Query",
+    "rejected": "Rejected by Approver",
+}
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 def _resolve_billing_reference(queryset, doc_payload: dict) -> dict:
@@ -38,6 +64,26 @@ def _resolve_billing_reference(queryset, doc_payload: dict) -> dict:
         reference = queryset.filter(invoice_number=reference_number).first()
         if reference:
             doc_payload["billing_reference"] = reference.id
+    return doc_payload
+
+
+def _resolve_branch(company, doc_payload: dict) -> dict:
+    """Resolve a branch UUID or branch code within the selected legal company only."""
+    branch_value = doc_payload.get("branch")
+    if not branch_value:
+        doc_payload["branch"] = None
+        return doc_payload
+    queryset = CompanyBranch.objects.filter(company=company, is_active=True)
+    try:
+        branch = queryset.filter(pk=branch_value).first()
+    except (ValueError, TypeError, DjangoValidationError):
+        branch = None
+    branch = branch or queryset.filter(code__iexact=str(branch_value).strip()).first()
+    if branch is None:
+        raise ValidationError({
+            "branch": ["Select an active branch belonging to the document's legal company."]
+        })
+    doc_payload["branch"] = str(branch.id)
     return doc_payload
 
 
@@ -60,7 +106,9 @@ class InvoiceViewSet(viewsets.ViewSet):
     def get_queryset(self):
         return Document.objects.filter(
             company_id__in=getattr(self.request, "active_company_ids", [])
-        ).prefetch_related("lines", "transmissions").select_related("company", "billing_reference")
+        ).prefetch_related("lines", "transmissions").select_related(
+            "company", "branch", "billing_reference"
+        )
 
     # -- CRUD -----------------------------------------------------------
 
@@ -75,6 +123,25 @@ class InvoiceViewSet(viewsets.ViewSet):
         doc_type = request.query_params.get("doc_type")
         if doc_type:
             qs = qs.filter(doc_type=doc_type)
+        branch = request.query_params.get("branch")
+        if branch:
+            try:
+                qs = qs.filter(branch_id=branch)
+            except (ValueError, TypeError, DjangoValidationError):
+                qs = qs.filter(branch__code__iexact=branch)
+        ap_status = request.query_params.get("ap_status")
+        if ap_status:
+            label = AP_STATUS_LABELS.get(ap_status.lower())
+            qs = qs.filter(ap_status=label) if label else qs.filter(ap_status__icontains=ap_status)
+        cpv = request.query_params.get("cpv") or request.query_params.get("counterparty_vatin")
+        if cpv:
+            qs = qs.filter(counterparty_vatin=cpv)
+        cr_number = request.query_params.get("cr_number")
+        if cr_number:
+            qs = qs.filter(company__cr_number=cr_number)
+        uuid_param = request.query_params.get("uuid")
+        if uuid_param:
+            qs = qs.filter(uuid_v5=uuid_param) if _is_uuid(uuid_param) else qs.none()
         search = request.query_params.get("search")
         if search:
             qs = qs.filter(
@@ -100,6 +167,17 @@ class InvoiceViewSet(viewsets.ViewSet):
         if not requested_direction:
             requested_direction = "AP" if request.data.get("document_type") in ("SELF_BILLED_389", "SELF_BILLED_CN_261") else "AR"
         doc_payload = compat.build_document_payload(request.data, direction=requested_direction)
+        doc_payload = _resolve_branch(company, doc_payload)
+        invoice_number = doc_payload.get("invoice_number", "")
+        if Document.objects.filter(
+            company=company, invoice_number=invoice_number, is_deleted=False
+        ).exists():
+            raise ValidationError({
+                "invoice_number": [
+                    f'Document number "{invoice_number}" already exists for {company.name_en}. '
+                    "Use the next number in the company numbering series."
+                ]
+            })
         reference_number = request.data.get("billingReferenceNumber")
         if reference_number:
             reference = get_object_or_404(self.get_queryset(), invoice_number=reference_number)
@@ -109,8 +187,31 @@ class InvoiceViewSet(viewsets.ViewSet):
             doc_payload = _resolve_billing_reference(self.get_queryset(), doc_payload)
         serializer = DocumentSerializer(data=doc_payload)
         serializer.is_valid(raise_exception=True)
-        document = serializer.save(company=company, created_by=request.user, direction=requested_direction)
-        config_services.log(request, "INVOICE_CREATE", entity="Document", entity_id=document.invoice_number)
+        try:
+            # Document, nested lines, PINT snapshot and audit log are one operation. A failure in
+            # any step must not leave a document saved while the client receives an error.
+            with transaction.atomic():
+                document = serializer.save(
+                    company=company, created_by=request.user, direction=requested_direction
+                )
+                type(company).objects.filter(pk=company.pk).update(
+                    next_invoice_number=F("next_invoice_number") + 1
+                )
+                if document.branch_id:
+                    CompanyBranch.objects.filter(pk=document.branch_id).update(
+                        next_invoice_number=F("next_invoice_number") + 1
+                    )
+                config_services.log(
+                    request, "INVOICE_CREATE", entity="Document", entity_id=document.invoice_number
+                )
+        except IntegrityError as exc:
+            if "uniq_invoice_no_per_company" in str(exc):
+                raise ValidationError({
+                    "invoice_number": [
+                        f'Document number "{invoice_number}" already exists for {company.name_en}.'
+                    ]
+                }) from exc
+            raise
         return Response(compat.to_compat(document), status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, invoice_number=None):
@@ -119,6 +220,10 @@ class InvoiceViewSet(viewsets.ViewSet):
             return Response({"detail": "Only draft/pending/rejected invoices can be edited."},
                              status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         doc_payload = compat.build_document_payload(request.data, direction=doc.direction)
+        if any(key in request.data for key in ("branch", "branch_id", "branchId")):
+            doc_payload = _resolve_branch(doc.company, doc_payload)
+        else:
+            doc_payload.pop("branch", None)
         doc_payload.pop("invoice_number", None)  # invoice number stays fixed on edit
         doc_payload = _resolve_billing_reference(self.get_queryset(), doc_payload)
         serializer = DocumentSerializer(doc, data=doc_payload, partial=True)
@@ -171,10 +276,12 @@ class InvoiceViewSet(viewsets.ViewSet):
                              entity_id=doc.invoice_number, status=doc.status)
         invoice = compat.to_compat(doc)
         if doc.status == "REJECTED":
+            latest_transmission = doc.transmissions.order_by("-created_at").first()
             return Response({
                 "status": "rejected",
                 "message": "Re-submission failed PINT-OM validation rules.",
                 "error": invoice["err"],
+                "errors": latest_transmission.validation_errors if latest_transmission else [],
                 "invoice": invoice,
             }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
         return Response({
@@ -186,10 +293,61 @@ class InvoiceViewSet(viewsets.ViewSet):
     @action(detail=True, methods=["post"])
     def approve(self, request, invoice_number=None):
         doc = self.get_document(invoice_number)
-        doc.ap_status = "Approved · posted to ERP"
-        doc.save(update_fields=["ap_status"])
-        config_services.log(request, "AP_APPROVE", entity="Document", entity_id=doc.invoice_number)
-        return Response({"status": "approved", "id": invoice_number})
+        if doc.direction != "AP":
+            raise ValidationError({"document": ["Only inbound/AP documents can be approved for ERP posting."]})
+        if doc.ap_status == AP_STATUS_LABELS["approved"]:
+            return Response(compat.to_compat(doc))
+        if doc.ap_status == AP_STATUS_LABELS["rejected"]:
+            raise ValidationError({"status": ["A rejected AP document must be corrected before approval."]})
+        targets = ErpDeliveryConfig.objects.filter(company=doc.company, is_active=True)
+        delivery_target = targets.filter(branch_id=doc.branch_id).first() if doc.branch_id else None
+        if delivery_target is None:
+            delivery_target = targets.filter(branch__isnull=True).first()
+        extra_data = dict(doc.extra_data or {})
+        extra_data["erp_delivery"] = {
+            "status": "CONFIGURED_FOR_DELIVERY" if delivery_target else "CONFIGURATION_REQUIRED",
+            "configuration_id": str(delivery_target.id) if delivery_target else None,
+            "configuration_name": delivery_target.name if delivery_target else None,
+            "scope": delivery_target.branch.code if delivery_target and delivery_target.branch_id else "COMPANY",
+        }
+        doc.ap_status = AP_STATUS_LABELS["approved"]
+        doc.erp_system = delivery_target.name if delivery_target else doc.erp_system
+        doc.extra_data = extra_data
+        doc.save(update_fields=["ap_status", "erp_system", "extra_data"])
+        config_services.log(
+            request, "AP_APPROVE", entity="Document", entity_id=doc.invoice_number,
+            erp_delivery=extra_data["erp_delivery"],
+        )
+        payload = compat.to_compat(doc)
+        payload["erpDelivery"] = extra_data["erp_delivery"]
+        return Response(payload)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, invoice_number=None):
+        doc = self.get_document(invoice_number)
+        doc.ap_status = AP_STATUS_LABELS["rejected"]
+        doc.status = "REJECTED"
+        note = request.data.get("notes") or request.data.get("reason")
+        if note:
+            doc.notes = note
+            doc.save(update_fields=["ap_status", "status", "notes"])
+        else:
+            doc.save(update_fields=["ap_status", "status"])
+        config_services.log(request, "AP_REJECT", entity="Document", entity_id=doc.invoice_number)
+        return Response({"status": "rejected", "id": invoice_number, "ap_status": doc.ap_status})
+
+    @action(detail=True, methods=["post"])
+    def query(self, request, invoice_number=None):
+        doc = self.get_document(invoice_number)
+        doc.ap_status = AP_STATUS_LABELS["query"]
+        note = request.data.get("notes") or request.data.get("reason")
+        if note:
+            doc.notes = note
+            doc.save(update_fields=["ap_status", "notes"])
+        else:
+            doc.save(update_fields=["ap_status"])
+        config_services.log(request, "AP_QUERY", entity="Document", entity_id=doc.invoice_number)
+        return Response({"status": "query", "id": invoice_number, "ap_status": doc.ap_status})
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, invoice_number=None):
@@ -218,6 +376,7 @@ class InvoiceViewSet(viewsets.ViewSet):
         payload = request.data
         company = resolve_write_company(request, request.data)
         doc_payload = compat.build_document_payload(payload, direction="AP")
+        doc_payload = _resolve_branch(company, doc_payload)
         doc_payload = _resolve_billing_reference(self.get_queryset(), doc_payload)
         serializer = DocumentSerializer(data=doc_payload)
         serializer.is_valid(raise_exception=True)
@@ -261,14 +420,24 @@ def _create_documents_from_rows(rows, company, user, queryset, source: str, erp_
         try:
             direction = item.get("dir_internal") or item.get("dir") or item.get("direction") or "AR"
             doc_payload = compat.build_document_payload(item, direction=direction)
+            doc_payload = _resolve_branch(company, doc_payload)
             doc_payload = _resolve_billing_reference(queryset, doc_payload)
             doc_payload.setdefault("erp_system", "")
             doc_payload["erp_system"] = doc_payload["erp_system"] or erp_default
             serializer = DocumentSerializer(data=doc_payload)
             serializer.is_valid(raise_exception=True)
             document = serializer.save(company=company, created_by=user, direction=direction, source=source)
-            peppol_services.submit_document(document, user)
-            created.append(compat.to_compat(document))
+            transmission = peppol_services.submit_document(document, user)
+            result = compat.to_compat(document)
+            created.append(result)
+            if document.status == "REJECTED":
+                errors.append({
+                    "row": idx,
+                    "invoice_number": document.invoice_number,
+                    "document_id": str(document.id),
+                    "errors": transmission.validation_errors,
+                    "error": "; ".join(error.get("message", str(error)) for error in transmission.validation_errors),
+                })
         except Exception as exc:
             errors.append({"row": idx, "invoice_number": item.get("n") or item.get("invoice_number"),
                             "error": str(exc)})
@@ -323,6 +492,11 @@ class BatchFileUploadView(APIView):
             rows = _group_flat_rows(self._parse_rows(file_obj))
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:  # corrupt/mismatched file content (bad zip, decode errors, ...)
+            return Response(
+                {"detail": f"'{file_obj.name}' could not be read: {exc}. "
+                            "Check that the file is a genuine, uncorrupted .csv or .xlsx export."},
+                status=status.HTTP_400_BAD_REQUEST)
 
         company = resolve_write_company(request, {})
         queryset = Document.objects.filter(company_id__in=request.active_company_ids)
@@ -339,6 +513,13 @@ class BatchFileUploadView(APIView):
         if name.endswith(".xlsx"):
             if openpyxl is None:
                 raise ValueError("Server is missing the openpyxl package required to read .xlsx files.")
+            header = file_obj.read(4)
+            file_obj.seek(0)
+            if header[:2] != b"PK":
+                raise ValueError(
+                    f"'{file_obj.name}' does not look like a real .xlsx file (wrong file signature) "
+                    "— it may be renamed from a different file type. Re-export a genuine Excel file, "
+                    "or upload .csv instead.")
             workbook = openpyxl.load_workbook(file_obj, data_only=True)
             sheet = workbook.active
             rows_iter = sheet.iter_rows(values_only=True)
@@ -350,7 +531,16 @@ class BatchFileUploadView(APIView):
                 rows.append({headers[i]: values[i] for i in range(len(headers)) if i < len(values)})
             return rows
 
-        text = file_obj.read().decode("utf-8-sig")
+        if not name.endswith(".csv"):
+            raise ValueError(f"Unsupported file type for '{file_obj.name}'. Upload a .csv or .xlsx file.")
+        try:
+            text = file_obj.read().decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"'{file_obj.name}' is not readable text — it looks like a binary file, not CSV."
+            ) from exc
+        if "\x00" in text:
+            raise ValueError(f"'{file_obj.name}' contains binary data and is not a valid CSV file.")
         reader = csv.DictReader(io.StringIO(text))
         return [row for row in reader if any((v or "").strip() for v in row.values() if v is not None)]
 
@@ -383,9 +573,18 @@ class ValidateOmanView(APIView):
             "issue_date": raw.get("IBT_002_InvoiceIssueDate"),
             "issue_time": raw.get("IBT_168_InvoiceIssueTime") or "12:00:00",
             "transaction_type_code": raw.get("BTOM_001_OmanTransactionType") or "10000000000000000000",
-            "counterparty_name": buyer.get("IBT_044_BuyerName") or "Muscat Retail SAOC",
-            "counterparty_vatin": buyer.get("IBT_048_BuyerVATIdentifier") or "",
-            "counterparty_endpoint": buyer.get("IBT_049_BuyerElectronicAddress") or "",
+            "counterparty_name": (
+                seller.get("IBT_027_SellerName") if direction == "AP"
+                else buyer.get("IBT_044_BuyerName")
+            ) or ("Cash Customer" if result["isSimplified"] else ""),
+            "counterparty_vatin": (
+                seller.get("IBT_031_SellerVATIdentifier") if direction == "AP"
+                else buyer.get("IBT_048_BuyerVATIdentifier")
+            ) or "",
+            "counterparty_endpoint": (
+                seller.get("IBT_034_SellerElectronicAddress") if direction == "AP"
+                else buyer.get("IBT_049_BuyerElectronicAddress")
+            ) or "",
             "currency": "OMR",
             "payment_means_code": "30",
             "payment_iban": raw.get("PaymentDetails", {}).get("IBT_084_PaymentAccountIdentifier")
@@ -396,6 +595,7 @@ class ValidateOmanView(APIView):
             # Full ingested IBT-named payload (seller/buyer addresses, allowances, GTIN, delivery,
             # PaymentDetails, ...) — kept verbatim since only a subset is promoted to real columns.
             "extra_data": {"ingested_payload": raw},
+            "branch": raw.get("branch_id") or raw.get("branchId") or raw.get("branch"),
             "lines": [
                 {
                     "line_id": idx,
@@ -410,6 +610,7 @@ class ValidateOmanView(APIView):
                 for idx, line in enumerate(lines or [{}], start=1)
             ],
         }
+        doc_payload = _resolve_branch(company, doc_payload)
         doc_payload["_billing_reference_number"] = raw.get("BillingReference") or raw.get("billing_reference")
         doc_payload = _resolve_billing_reference(self.get_queryset(), doc_payload)
         serializer = DocumentSerializer(data=doc_payload)
@@ -439,6 +640,147 @@ class ValidateOmanView(APIView):
             "uuidV5Generated": invoice["uuid"],
         }
         return Response(body, status=status.HTTP_200_OK if result["isValid"] else status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+
+class PintOmPayloadValidateView(APIView):
+    """Canonical PINT-OM v1 dry run. This endpoint never writes or transmits."""
+
+    serializer_class = PintOmInvoiceSerializer
+    permission_classes = [ResolveActiveCompany, CanOperateDocuments]
+
+    def post(self, request):
+        result = validate_pint_om_payload(request.data)
+        result.pop("validated_data", None)
+        return Response(
+            result,
+            status=status.HTTP_200_OK if result["valid"] else status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+
+class PintOmPayloadCreateView(APIView):
+    """Validate using the dry-run pipeline, then atomically persist a canonical DTO."""
+
+    serializer_class = PintOmInvoiceSerializer
+    permission_classes = [ResolveActiveCompany, CanOperateDocuments]
+
+    def post(self, request):
+        result = validate_pint_om_payload(request.data, include_ubl=True)
+        validated_data = result.pop("validated_data", None)
+        if not result["valid"]:
+            result.pop("ubl_xml", None)
+            return Response(result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        company = resolve_write_company(request, request.data)
+        header = validated_data["header"]
+        seller = validated_data["seller_details"]
+        buyer = validated_data["buyer_details"]
+        totals = validated_data["totals"]
+        payment = validated_data.get("payment_details", {})
+        code = header["ibt_003_invoice_type_code"]
+        direction = "AP" if code in SELF_BILLED_CODES else "AR"
+        invoice_number = header["ibt_001_invoice_number"]
+        if Document.objects.filter(
+            company=company, invoice_number=invoice_number, is_deleted=False
+        ).exists():
+            return Response({
+                **result,
+                "valid": False,
+                "errors": [{
+                    "code": "REST-DUPLICATE-001",
+                    "severity": "fatal",
+                    "field": "header.ibt_001_invoice_number",
+                    "business_term": "IBT-001",
+                    "message": f'Document number "{invoice_number}" already exists for this company.',
+                    "source": "persistence_preflight",
+                }],
+            }, status=status.HTTP_409_CONFLICT)
+
+        counterparty = seller if direction == "AP" else buyer
+        counterparty_prefix = "seller" if direction == "AP" else "buyer"
+        counterparty_number = "031" if direction == "AP" else "048"
+        endpoint_number = "034" if direction == "AP" else "049"
+        type_by_code = {
+            "380": "SIMPLIFIED_B2C" if header["btom_001_invoice_transaction_type"] == "01000000000000000000" else "STANDARD_380",
+            "381": "CREDIT_NOTE_381",
+            "383": "DEBIT_NOTE_383",
+            "389": "SELF_BILLED_389",
+            "261": "SELF_BILLED_CN_261",
+        }
+        doc_payload = {
+            "direction": direction,
+            "document_type": type_by_code[code],
+            "invoice_number": invoice_number,
+            "transaction_type_code": header["btom_001_invoice_transaction_type"],
+            "issue_date": header["ibt_002_invoice_issue_date"],
+            "issue_time": header["ibt_168_invoice_issue_time"],
+            "due_date": header.get("ibt_009_payment_due_date"),
+            "tax_point_date": header.get("ibt_007_vat_point_date"),
+            "counterparty_name": counterparty[f"ibt_{'027' if direction == 'AP' else '044'}_{counterparty_prefix}_name"],
+            "counterparty_vatin": counterparty.get(f"ibt_{counterparty_number}_{counterparty_prefix}_vatin", ""),
+            "counterparty_endpoint": counterparty.get(f"ibt_{endpoint_number}_{counterparty_prefix}_electronic_address", ""),
+            "currency": header["ibt_005_invoice_currency_code"],
+            "allowance_total": totals["ibt_107_sum_of_allowances"],
+            "charge_total": totals["ibt_108_sum_of_charges"],
+            "payment_means_code": payment.get("ibt_081_payment_means_code", "30"),
+            "payment_iban": payment.get("ibt_084_payment_account_identifier", ""),
+            "payment_terms": payment.get("ibt_020_payment_terms_note", ""),
+            "status": "VALIDATED",
+            "source": "REST_API",
+            "branch": request.data.get("branch"),
+            "extra_data": {
+                "pint_om_api": request.data,
+                "ubl_xml": result["ubl_xml"],
+                "validation": {key: value for key, value in result.items() if key != "ubl_xml"},
+            },
+            "lines": [
+                {
+                    "line_id": int(line["ibt_126_line_identifier"]),
+                    "item_name": line["ibt_153_item_name"],
+                    "description": line.get("ibt_127_line_note", ""),
+                    "quantity": line["ibt_129_invoiced_quantity"],
+                    "unit_code": line["ibt_130_quantity_unit_code"],
+                    "unit_price": line["ibt_146_item_net_price"],
+                    "discount": Decimal("0"),
+                    "vat_category": line["ibt_151_item_vat_category_code"],
+                    "vat_rate": line["ibt_152_item_vat_rate"],
+                }
+                for line in validated_data["lines"]
+            ],
+        }
+        doc_payload = _resolve_branch(company, doc_payload)
+        reference_data = validated_data.get("billing_reference")
+        if reference_data:
+            reference = Document.objects.filter(
+                company=company,
+                invoice_number=reference_data["ibt_025_preceding_invoice_reference"],
+                is_deleted=False,
+            ).first()
+            if reference:
+                doc_payload["billing_reference"] = reference.id
+        serializer = DocumentSerializer(data=doc_payload)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            document = serializer.save(company=company, created_by=request.user, direction=direction)
+            document.uuid_v5 = header["btom_002_invoice_uuid"]
+            document.line_extension_amount = totals["ibt_106_sum_of_line_net_amount"]
+            document.tax_exclusive_amount = totals["ibt_109_invoice_total_without_vat"]
+            document.tax_amount = totals["ibt_110_invoice_total_vat_amount"]
+            document.tax_inclusive_amount = totals["ibt_112_invoice_total_with_vat"]
+            document.payable_amount = totals["ibt_115_amount_due_for_payment"]
+            document.extra_data = doc_payload["extra_data"]
+            document.save(update_fields=[
+                "uuid_v5", "line_extension_amount", "tax_exclusive_amount", "tax_amount",
+                "tax_inclusive_amount", "payable_amount", "extra_data",
+            ])
+            config_services.log(
+                request, "PINT_OM_API_CREATE", entity="Document",
+                entity_id=document.invoice_number, specification_version="1.0.1",
+            )
+        result.pop("ubl_xml", None)
+        result["document_id"] = str(document.id)
+        result["invoice_number"] = document.invoice_number
+        result["status"] = document.status.lower()
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 class LegacyRequestsView(APIView):

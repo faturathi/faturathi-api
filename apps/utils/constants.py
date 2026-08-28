@@ -74,7 +74,7 @@ GROUP_VATIN_REGEX = r"^OM12\d{8}$"
 
 BR_O_02_MESSAGE = (
     "Schematron Error BR-O-02: Buyer VATIN '{vatin}' violates Oman PINT-OM syntax rules. "
-    "Must start with 'OM' followed by 8–12 digits (e.g. OM1100887700)."
+    "Must be 'OM11' followed by exactly 8 digits (12 characters), e.g. OM1100887700."
 )
 
 ENTITY_GROUP_VATIN_REJECTION = (
