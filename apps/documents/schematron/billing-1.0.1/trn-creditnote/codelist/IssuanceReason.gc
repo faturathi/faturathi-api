@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<gc:Codelist xmlns:gc="http://docs.oasis-open.org/codelist/ns/genericode/1.0/">
+  <gc:Identification>
+    <gc:ShortName Lang="en">Reasons for issuance of credit note or debit note</gc:ShortName>
+    <gc:Version>1</gc:Version>
+  </gc:Identification>
+  <gc:ColumnSet>
+    <gc:Column Id="id" Use="required">
+      <gc:ShortName>Identifier</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Column Id="name" Use="optional">
+      <gc:ShortName>Name</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Column Id="description" Use="optional">
+      <gc:ShortName>Description</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Key Id="idKey">
+      <gc:ColumnRef Ref="id"/>
+    </gc:Key>
+  </gc:ColumnSet>
+  <gc:SimpleCodeList>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>CAN</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Cancellation or return.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Supply has been cancelled or goods have been returned, resulting in a full or partial reversal of the original transaction.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VAT</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Change in VAT treatment.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Adjustment due to a change in the VAT treatment of the supply, resulting from a reclassification of the nature of the supply.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VAL</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Change in value.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Adjustment to the value of the supply due to changes in price, discounts, or additional charges.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>QTY</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Change in quantity.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Adjustment to the value of the supply due to changes in the quantity of goods or services originally invoiced.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>OTH</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Other.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Any other reason for issuing a Credit Note or Debit Note not covered by the specified codes.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+  </gc:SimpleCodeList>
+</gc:Codelist>

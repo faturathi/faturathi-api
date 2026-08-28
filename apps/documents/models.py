@@ -77,7 +77,7 @@ class Document(TenantModel):
     ap_status = models.CharField(max_length=40, blank=True)  # "Pending Approver Review" / "Approved · posted to ERP"
     erp_system = models.CharField(max_length=40, blank=True)
 
-    # Overflow for the rest of the ~73-field PINT OM spec (addresses, GTIN, allowances/charges
+    # Overflow for transaction-dependent PINT-OM terms (addresses, GTIN, allowances/charges
     # breakdown, delivery info, the raw ingested IBT-named payload, ...). Anything promoted to a
     # real column above should be read from that column, not from here — this is long-tail only.
     extra_data = models.JSONField(default=dict, blank=True)

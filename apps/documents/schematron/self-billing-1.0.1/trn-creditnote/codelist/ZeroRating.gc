@@ -1,0 +1,202 @@
+<?xml version="1.0"?>
+<gc:Codelist xmlns:gc="http://docs.oasis-open.org/codelist/ns/genericode/1.0/">
+  <gc:Identification>
+    <gc:ShortName Lang="en">Zero Rating Reason Code List</gc:ShortName>
+    <gc:Version>1</gc:Version>
+  </gc:Identification>
+  <gc:ColumnSet>
+    <gc:Column Id="id" Use="required">
+      <gc:ShortName>Identifier</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Column Id="name" Use="optional">
+      <gc:ShortName>Name</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Column Id="description" Use="optional">
+      <gc:ShortName>Description</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Key Id="idKey">
+      <gc:ColumnRef Ref="id"/>
+    </gc:Key>
+  </gc:ColumnSet>
+  <gc:SimpleCodeList>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-01</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Qualifying Supply of Food items specified by a decision from the Chairman.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of food items as specified by a decision issued by the competent authority.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-02</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Qualifying Supply of Medicines and medical equipment.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of qualifying medicines and medical equipment.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-03</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Supply of investment gold, silver, and platinum.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of investment gold, silver, and platinum.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-04</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Supplies of international and intra GCC transport of Goods or passengers.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of international and intra-GCC transport of goods or passengers.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-05</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Supply of Services related to International and Intra GCC transportation of Goods or passengers.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of services directly related to international and intra-GCC transport of goods or passengers.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-06</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Supply of qualifying air, sea and land means of transport.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of qualifying air, sea, and land means of transport.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-07</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Supply of rescue planes, and rescue and assistance boats.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of rescue aircraft and rescue or assistance boats.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-08</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Supply of oil, oil derivatives and natural gas.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of oil, oil derivatives, and natural gas.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-09</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Export of service.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of services exported outside Oman.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-10</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Direct export of goods.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of goods exported directly outside Oman.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-11</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Indirect export of goods.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of goods exported indirectly outside Oman.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-12</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Re-export of goods.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of goods that are re-exported after import.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-13</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Supply from a Special Zone to a Special Zone, or within a Special Zone.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of goods between Special Zones or within a Special Zone.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-14</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Supply from Mainland to Special Zone.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of goods from mainland Oman to a Special Zone.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-15</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Customs Duty Suspension Statuses to a Special Zone.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of goods from Customs Duty Suspension regimes to a Special Zone.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATZR-OM-16</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Special Zone to Customs Duty Suspension Statuses.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Zero-rated supply of goods from a Special Zone to Customs Duty Suspension regimes.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+  </gc:SimpleCodeList>
+</gc:Codelist>

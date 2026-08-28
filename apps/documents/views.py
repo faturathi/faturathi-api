@@ -28,6 +28,8 @@ from . import compat
 from .models import Document
 from .serializers import DocumentSerializer
 from .pint_om import refresh_pint_snapshot
+from .pint_contract import PintOmInvoiceSerializer
+from .pint_pipeline import SELF_BILLED_CODES, validate_pint_om_payload
 
 try:
     import openpyxl
@@ -638,6 +640,147 @@ class ValidateOmanView(APIView):
             "uuidV5Generated": invoice["uuid"],
         }
         return Response(body, status=status.HTTP_200_OK if result["isValid"] else status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+
+class PintOmPayloadValidateView(APIView):
+    """Canonical PINT-OM v1 dry run. This endpoint never writes or transmits."""
+
+    serializer_class = PintOmInvoiceSerializer
+    permission_classes = [ResolveActiveCompany, CanOperateDocuments]
+
+    def post(self, request):
+        result = validate_pint_om_payload(request.data)
+        result.pop("validated_data", None)
+        return Response(
+            result,
+            status=status.HTTP_200_OK if result["valid"] else status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
+
+
+class PintOmPayloadCreateView(APIView):
+    """Validate using the dry-run pipeline, then atomically persist a canonical DTO."""
+
+    serializer_class = PintOmInvoiceSerializer
+    permission_classes = [ResolveActiveCompany, CanOperateDocuments]
+
+    def post(self, request):
+        result = validate_pint_om_payload(request.data, include_ubl=True)
+        validated_data = result.pop("validated_data", None)
+        if not result["valid"]:
+            result.pop("ubl_xml", None)
+            return Response(result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        company = resolve_write_company(request, request.data)
+        header = validated_data["header"]
+        seller = validated_data["seller_details"]
+        buyer = validated_data["buyer_details"]
+        totals = validated_data["totals"]
+        payment = validated_data.get("payment_details", {})
+        code = header["ibt_003_invoice_type_code"]
+        direction = "AP" if code in SELF_BILLED_CODES else "AR"
+        invoice_number = header["ibt_001_invoice_number"]
+        if Document.objects.filter(
+            company=company, invoice_number=invoice_number, is_deleted=False
+        ).exists():
+            return Response({
+                **result,
+                "valid": False,
+                "errors": [{
+                    "code": "REST-DUPLICATE-001",
+                    "severity": "fatal",
+                    "field": "header.ibt_001_invoice_number",
+                    "business_term": "IBT-001",
+                    "message": f'Document number "{invoice_number}" already exists for this company.',
+                    "source": "persistence_preflight",
+                }],
+            }, status=status.HTTP_409_CONFLICT)
+
+        counterparty = seller if direction == "AP" else buyer
+        counterparty_prefix = "seller" if direction == "AP" else "buyer"
+        counterparty_number = "031" if direction == "AP" else "048"
+        endpoint_number = "034" if direction == "AP" else "049"
+        type_by_code = {
+            "380": "SIMPLIFIED_B2C" if header["btom_001_invoice_transaction_type"] == "01000000000000000000" else "STANDARD_380",
+            "381": "CREDIT_NOTE_381",
+            "383": "DEBIT_NOTE_383",
+            "389": "SELF_BILLED_389",
+            "261": "SELF_BILLED_CN_261",
+        }
+        doc_payload = {
+            "direction": direction,
+            "document_type": type_by_code[code],
+            "invoice_number": invoice_number,
+            "transaction_type_code": header["btom_001_invoice_transaction_type"],
+            "issue_date": header["ibt_002_invoice_issue_date"],
+            "issue_time": header["ibt_168_invoice_issue_time"],
+            "due_date": header.get("ibt_009_payment_due_date"),
+            "tax_point_date": header.get("ibt_007_vat_point_date"),
+            "counterparty_name": counterparty[f"ibt_{'027' if direction == 'AP' else '044'}_{counterparty_prefix}_name"],
+            "counterparty_vatin": counterparty.get(f"ibt_{counterparty_number}_{counterparty_prefix}_vatin", ""),
+            "counterparty_endpoint": counterparty.get(f"ibt_{endpoint_number}_{counterparty_prefix}_electronic_address", ""),
+            "currency": header["ibt_005_invoice_currency_code"],
+            "allowance_total": totals["ibt_107_sum_of_allowances"],
+            "charge_total": totals["ibt_108_sum_of_charges"],
+            "payment_means_code": payment.get("ibt_081_payment_means_code", "30"),
+            "payment_iban": payment.get("ibt_084_payment_account_identifier", ""),
+            "payment_terms": payment.get("ibt_020_payment_terms_note", ""),
+            "status": "VALIDATED",
+            "source": "REST_API",
+            "branch": request.data.get("branch"),
+            "extra_data": {
+                "pint_om_api": request.data,
+                "ubl_xml": result["ubl_xml"],
+                "validation": {key: value for key, value in result.items() if key != "ubl_xml"},
+            },
+            "lines": [
+                {
+                    "line_id": int(line["ibt_126_line_identifier"]),
+                    "item_name": line["ibt_153_item_name"],
+                    "description": line.get("ibt_127_line_note", ""),
+                    "quantity": line["ibt_129_invoiced_quantity"],
+                    "unit_code": line["ibt_130_quantity_unit_code"],
+                    "unit_price": line["ibt_146_item_net_price"],
+                    "discount": Decimal("0"),
+                    "vat_category": line["ibt_151_item_vat_category_code"],
+                    "vat_rate": line["ibt_152_item_vat_rate"],
+                }
+                for line in validated_data["lines"]
+            ],
+        }
+        doc_payload = _resolve_branch(company, doc_payload)
+        reference_data = validated_data.get("billing_reference")
+        if reference_data:
+            reference = Document.objects.filter(
+                company=company,
+                invoice_number=reference_data["ibt_025_preceding_invoice_reference"],
+                is_deleted=False,
+            ).first()
+            if reference:
+                doc_payload["billing_reference"] = reference.id
+        serializer = DocumentSerializer(data=doc_payload)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            document = serializer.save(company=company, created_by=request.user, direction=direction)
+            document.uuid_v5 = header["btom_002_invoice_uuid"]
+            document.line_extension_amount = totals["ibt_106_sum_of_line_net_amount"]
+            document.tax_exclusive_amount = totals["ibt_109_invoice_total_without_vat"]
+            document.tax_amount = totals["ibt_110_invoice_total_vat_amount"]
+            document.tax_inclusive_amount = totals["ibt_112_invoice_total_with_vat"]
+            document.payable_amount = totals["ibt_115_amount_due_for_payment"]
+            document.extra_data = doc_payload["extra_data"]
+            document.save(update_fields=[
+                "uuid_v5", "line_extension_amount", "tax_exclusive_amount", "tax_amount",
+                "tax_inclusive_amount", "payable_amount", "extra_data",
+            ])
+            config_services.log(
+                request, "PINT_OM_API_CREATE", entity="Document",
+                entity_id=document.invoice_number, specification_version="1.0.1",
+            )
+        result.pop("ubl_xml", None)
+        result["document_id"] = str(document.id)
+        result["invoice_number"] = document.invoice_number
+        result["status"] = document.status.lower()
+        return Response(result, status=status.HTTP_201_CREATED)
 
 
 class LegacyRequestsView(APIView):

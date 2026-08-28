@@ -98,7 +98,7 @@ MFA code:      582910
 ```
 
 The `sample_data/` directory contains CSV examples for all six document profiles and a formatted
-Excel workbook containing the 73-field OTA reference structure.
+Excel workbook containing transaction-dependent PINT-OM business-term examples.
 
 ## Django management commands and demonstration data
 
@@ -331,6 +331,11 @@ X-API-KEY: <api-key-from-connectors/credentials>
 
 ### Documents and ingestion
 
+- `POST /api/v1/invoices/validate/` — canonical lower-snake-case dry-run pipeline; performs
+  DRF schema validation, PINT semantic checks, JSON-to-UBL 2.1 mapping, shared PINT Schematron
+  and official Oman PINT-OM Schematron. It never writes or transmits.
+- `POST /api/v1/invoices/` — canonical create endpoint. It executes exactly the same pipeline
+  and writes the validated document atomically only after every fatal assertion has passed.
 - `GET|POST /api/v1/invoices` — list supports `?dir=AR|AP`, `?status=`, `?doc_type=`,
   `?ap_status=pending|approved|query|rejected` (normalized AP approval-pool filter),
   `?cpv=<vatin>` / `?counterparty_vatin=<vatin>`, `?cr_number=<company CR>`, `?uuid=<uuid_v5>`,
@@ -355,7 +360,7 @@ X-API-KEY: <api-key-from-connectors/credentials>
 - `POST /api/v1/upload-batch/file` — multipart CSV/XLSX; rejects files whose content doesn't
   match their extension (wrong signature, binary garbage, unparseable) with a specific message
   instead of a raw 500
-- `POST /api/v1/validate`
+- `POST /api/v1/validate` — deprecated compatibility endpoint for legacy PascalCase clients
 
 All creation paths produce the same `Document` and `DocumentLine` records. Manual, REST, ERP,
 SFTP, inbound AP, CSV and XLSX documents therefore appear in the same invoice register, reports,
@@ -444,7 +449,7 @@ React client / ERP / CSV-XLSX / External REST
           |          |          |
      Documents    Reports    Administration
           |
-   PINT-OM validation + canonical 73-field JSON
+   PINT-OM validation + traceable snake_case JSON/UBL
           |
    Peppol transmission / OTA / MLS lifecycle
           |

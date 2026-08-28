@@ -1,0 +1,254 @@
+<?xml version="1.0"?>
+<gc:Codelist xmlns:gc="http://docs.oasis-open.org/codelist/ns/genericode/1.0/">
+  <gc:Identification>
+    <gc:ShortName Lang="en">Invoice Transaction Type</gc:ShortName>
+    <gc:Version>1</gc:Version>
+  </gc:Identification>
+  <gc:ColumnSet>
+    <gc:Column Id="id" Use="required">
+      <gc:ShortName>Identifier</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Column Id="name" Use="optional">
+      <gc:ShortName>Name</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Column Id="description" Use="optional">
+      <gc:ShortName>Description</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Key Id="idKey">
+      <gc:ColumnRef Ref="id"/>
+    </gc:Key>
+  </gc:ColumnSet>
+  <gc:SimpleCodeList>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>10000000000000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Full Tax Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>A normal full tax invoice as per Oman VAT regulations.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>01000000000000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Simplified Tax Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>A simplified tax invoice contains a lower number of fields compared to a Tax Invoice and is generally issued in case of B2C transactions.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00100000000000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Self-billed Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>The invoice/credit note issued by the buyer on behalf of the supplier only when there is an agreement in place between the seller and buyer to do so.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00010000000000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Third-party Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>An invoice created by an authorised third party on behalf of the supplier.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00001000000000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Summary Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>The invoice is issued for sales made to a single customer in a calendar month.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000100000000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Continuous Supply</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Invoice issued for supplies made on a continuous basis.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000010000000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Export Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>The invoice is issued to a customer outside Oman. Export invoices can be issued in case of direct, indirect or re-export of goods and export of services.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000001000000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Deemed Supply Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>The invoice is issued for supplies that are sold without consideration.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000100000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Import of Services (RCM)</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Invoice issued by the importer of services under the Reverse Charge Mechanism (RCM) .</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000010000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Profit Margin Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Invoice issued for supply of goods under the profit margin scheme.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000001000000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Profit Margin Self-Invoice</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Self invoice issued by the buyer on behalf of the original seller (not registered for VAT) on the purchase of goods that will be sold under the profit margin scheme.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000100000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>E-commerce Transaction</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Invoice issued for e-commerce supplies.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000010000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Import of Goods</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Invoice issued by the importer of goods for goods imported into Oman.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000001000000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Special Zone Supplies</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Invoice issued for supplies made to or from or within Special Zones. Supplies are considered to be special zone supplies if goods are supplied in the following cases:
+
+- Special zone to Special zone
+- Within special zone 
+- Special zone to mainland 
+- Mainland to Special zone 
+- Customs Duty Suspension Statuses to a Special Zone
+- Special Zone to Customs Duty Suspension Statuses 
+</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000000100000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Prepayment Invoice.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>An invoice issued to collect an advance, deposit, instalment, or prepayment against a future supply.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000000010000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Placeholder (1).</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Reserved for future use.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000000001000</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Placeholder (2).</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Reserved for future use.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000000000100</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Placeholder (3).</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Reserved for future use.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000000000010</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Placeholder (4).</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Reserved for future use.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>00000000000000000001</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Placeholder (5).</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>Reserved for future use.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+  </gc:SimpleCodeList>
+</gc:Codelist>

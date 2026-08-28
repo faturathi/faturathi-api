@@ -1,8 +1,8 @@
-# PINT-OM 73-field document samples
+# PINT-OM v1.0.1 document samples
 
 The six CSV files and `faturathi_pint_om_73_field_samples.xlsx` cover every document profile
 returned by `GET /api/document-types`. Each CSV contains nine Faturathi processing columns plus
-all 73 fields from the April 2026 Oman PINT-OM reference guide.
+representative business terms for PINT-OM v1.0.1. Compliance is rule, cardinality and transaction dependent.
 
 ## Import
 

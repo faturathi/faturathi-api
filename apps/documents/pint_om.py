@@ -2,7 +2,7 @@
 
 The relational columns remain the searchable source of truth for operational fields.  The
 ``extra_data.pint_om`` snapshot contains the complete OTA-facing representation, including
-conditional/optional members from the April 2026 73-field reference guide.
+conditional/optional members retained for backwards compatibility with the legacy API.
 """
 
 from collections import defaultdict

@@ -1,6 +1,7 @@
-from django.core.management import call_command
 import hashlib
 import secrets
+
+from django.core.management import call_command
 from django_filters import rest_framework as df_filters
 from rest_framework import generics, viewsets
 from rest_framework.response import Response
@@ -13,6 +14,7 @@ from .serializers import ErpDeliveryConfigSerializer, SupportTicketSerializer, S
 from apps.utils.permissions import CanManageErpDeliveryConfig, IsPlatformAdmin, IsTenantAdministrator, ResolveActiveCompany, resolve_write_company
 from apps.utils.openapi import GenericApiSerializer
 from apps.user.models import User
+from apps.documents.pint_examples import get_pint_om_examples
 
 
 class SystemConfigView(generics.RetrieveUpdateAPIView):
@@ -51,12 +53,37 @@ class SupportTicketListCreateView(generics.ListCreateAPIView):
     permission_classes = [ResolveActiveCompany]
 
     def get_queryset(self):
-        return SupportTicket.objects.filter(company_id__in=getattr(self.request, "active_company_ids", []))
+        return SupportTicket.objects.filter(
+            company_id__in=getattr(self.request, "active_company_ids", [])
+        ).order_by("-created_at")
 
     def perform_create(self, serializer):
         company = resolve_write_company(self.request, self.request.data)
         ticket = serializer.save(company=company, created_by=self.request.user)
         services.log(self.request, "SUPPORT_TICKET_CREATE", entity="SupportTicket", entity_id=ticket.id)
+
+
+class DocumentApiExamplesView(APIView):
+    """Return the canonical PINT-OM v1.0.1 JSON examples used by the setup guide."""
+
+    permission_classes = [ResolveActiveCompany]
+    serializer_class = GenericApiSerializer
+
+    def get(self, request):
+        examples = []
+        for key, payload in get_pint_om_examples().items():
+            header = payload["header"]
+            code = header["ibt_003_invoice_type_code"]
+            examples.append({
+                "key": key,
+                "title": key.replace("_", " ").title(),
+                "document": key.upper(),
+                "pint_om_version": "1.0.1",
+                "ubl_document": "CreditNote" if code in {"381", "261"} else "Invoice",
+                "code": code,
+                "payload": payload,
+            })
+        return Response({"count": len(examples), "version": "1.0.1", "examples": examples})
 
 
 class ApiCredentialView(APIView):

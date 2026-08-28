@@ -11,3 +11,4 @@ gunicorn>=23.0,<24
 django-storages[s3]>=1.14,<2
 boto3>=1.42,<2
 drf-spectacular[sidecar]>=0.29,<1
+saxonche>=12.9,<13

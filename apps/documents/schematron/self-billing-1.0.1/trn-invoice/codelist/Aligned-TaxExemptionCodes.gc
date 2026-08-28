@@ -1,0 +1,158 @@
+<?xml version="1.0"?>
+<gc:Codelist xmlns:gc="http://docs.oasis-open.org/codelist/ns/genericode/1.0/">
+  <gc:Identification>
+    <gc:ShortName Lang="en">Exemption Reason Code List</gc:ShortName>
+    <gc:Version>1</gc:Version>
+  </gc:Identification>
+  <gc:ColumnSet>
+    <gc:Column Id="id" Use="required">
+      <gc:ShortName>Identifier</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Column Id="name" Use="optional">
+      <gc:ShortName>Name</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Column Id="description" Use="optional">
+      <gc:ShortName>Description</gc:ShortName>
+      <gc:Data Type="string"/>
+    </gc:Column>
+    <gc:Key Id="idKey">
+      <gc:ColumnRef Ref="id"/>
+    </gc:Key>
+  </gc:ColumnSet>
+  <gc:SimpleCodeList>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-01</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Qualifying Financial Services.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to qualifying financial services as defined under Oman VAT regulations.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-02</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Educational Services and Related Goods and Services.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to educational services and closely related goods and services.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-03</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Healthcare Services and related Goods and Services.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to healthcare services and closely related goods and services.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-04</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Rental of properties for residential purposes.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to the rental of properties for residential purposes.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-05</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Local Passenger Transport.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to the supply of local passenger transport services.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-06</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Undeveloped land (bare land).</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to the supply of undeveloped land (bare land).</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-07</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Resale of residential properties.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to the resale of residential properties.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-08</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Imported goods supplied to diplomatic and consular bodies, international organizations, and the heads and members of diplomatic and consular bodies.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to imported goods supplied to diplomatic and consular bodies international organizations and their entitled members.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-09</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Imports for the Armed Forces and Internal Security Forces.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to imports made for the armed forces and internal security forces.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-10</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Imported supplies for non-profit charities.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to imported supplies for approved nonprofit charitable organizations.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-11</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Import of returned goods.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to the import of goods that are returned to the country.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+    <gc:Row>
+      <gc:Value ColumnRef="id">
+        <gc:SimpleValue>VATEX-OM-12</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="name">
+        <gc:SimpleValue>Imported Goods in cases where the supply of such Goods is exempted from Tax or subject to Tax at a rate of zero percent in the Final Destination Point of Entry.</gc:SimpleValue>
+      </gc:Value>
+      <gc:Value ColumnRef="description">
+        <gc:SimpleValue>VAT exemption applicable to imported goods where the supply of such goods is exempt from VAT or subject to zero percent VAT at the final destination.</gc:SimpleValue>
+      </gc:Value>
+    </gc:Row>
+  </gc:SimpleCodeList>
+</gc:Codelist>

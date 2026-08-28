@@ -3,7 +3,7 @@ from datetime import date
 from rest_framework.test import APIClient, APITestCase
 
 from apps.company.models import Company, CompanyBranch, CompanyGroup
-from apps.config.models import ErpDeliveryConfig
+from apps.config.models import ErpDeliveryConfig, SupportTicket
 from apps.user.models import User
 
 
@@ -90,3 +90,48 @@ class ErpDeliveryConfigTests(APITestCase):
         self.client.force_authenticate(self.portal_admin)
         response = self.client.get("/api/erp-delivery-configs")
         self.assertEqual(response.status_code, 403)
+
+
+class SupportAndDocumentationTests(APITestCase):
+    def setUp(self):
+        group = CompanyGroup.objects.create(name="Support Group", group_vatin="OM1200000077")
+        self.company = Company.objects.create(
+            company_group=group, short_code="SUP1", name_en="Support Company",
+            cr_number="CR-SUPPORT", vat_number="OM1100000077",
+            peppol_participant_id="0248:OM1100000077",
+        )
+        self.admin = User.objects.create_user(
+            "support-admin@example.com", "secret", company=self.company, role="ADMIN"
+        )
+        self.client.force_authenticate(self.admin)
+
+    def test_created_support_ticket_is_immediately_listed_newest_first(self):
+        older = SupportTicket.objects.create(
+            company=self.company, created_by=self.admin, subject="Older issue",
+            contact_email=self.admin.email, message="Previously raised issue",
+        )
+        created = self.client.post("/api/support/tickets", {
+            "subject": "New visible issue", "category": "TECHNICAL",
+            "contact_email": self.admin.email, "message": "Show this immediately",
+        }, format="json")
+        self.assertEqual(created.status_code, 201, created.json())
+        listing = self.client.get("/api/support/tickets?page_size=100")
+        self.assertEqual(listing.status_code, 200)
+        rows = listing.json().get("results", listing.json())
+        self.assertEqual(rows[0]["id"], created.json()["id"])
+        self.assertNotEqual(rows[0]["id"], str(older.id))
+
+    def test_document_api_catalogue_contains_all_six_profiles(self):
+        response = self.client.get("/api/document-api-examples")
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["count"], 6)
+        self.assertEqual(
+            {row["code"] for row in response.json()["examples"]},
+            {"261", "380", "381", "383", "389"},
+        )
+        self.assertTrue(all(
+            "header" in row["payload"]
+            and "seller_details" in row["payload"]
+            and "lines" in row["payload"]
+            for row in response.json()["examples"]
+        ))
