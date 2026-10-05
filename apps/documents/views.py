@@ -42,9 +42,10 @@ except ImportError:
 # item 2/4) can reliably select "the approved pool" instead of substring-matching display labels.
 AP_STATUS_LABELS = {
     "pending": "Pending Approver Review",
-    "approved": "Approved · posted to ERP",
+    "approved": "ERP posting requested",
     "query": "On Hold Query",
     "rejected": "Rejected by Approver",
+    "not_posted": "Not Posted to ERP",
 }
 
 
@@ -295,10 +296,10 @@ class InvoiceViewSet(viewsets.ViewSet):
         doc = self.get_document(invoice_number)
         if doc.direction != "AP":
             raise ValidationError({"document": ["Only inbound/AP documents can be approved for ERP posting."]})
-        if doc.ap_status == AP_STATUS_LABELS["approved"]:
+        if doc.ap_status in (AP_STATUS_LABELS["approved"], "Approved · posted to ERP", "Approved & Posted to ERP"):
             return Response(compat.to_compat(doc))
-        if doc.ap_status == AP_STATUS_LABELS["rejected"]:
-            raise ValidationError({"status": ["A rejected AP document must be corrected before approval."]})
+        if doc.ap_status in (AP_STATUS_LABELS["rejected"], AP_STATUS_LABELS["not_posted"]):
+            raise ValidationError({"status": ["This AP document is marked not to post to ERP. Review the decision before posting."]})
         targets = ErpDeliveryConfig.objects.filter(company=doc.company, is_active=True)
         delivery_target = targets.filter(branch_id=doc.branch_id).first() if doc.branch_id else None
         if delivery_target is None:
@@ -321,6 +322,25 @@ class InvoiceViewSet(viewsets.ViewSet):
         payload = compat.to_compat(doc)
         payload["erpDelivery"] = extra_data["erp_delivery"]
         return Response(payload)
+
+    @action(detail=True, methods=["post"])
+    def skip_erp(self, request, invoice_number=None):
+        """Record an AP posting decision without changing network/OTA status."""
+        doc = self.get_document(invoice_number)
+        if doc.direction != "AP":
+            raise ValidationError({"document": ["Only inbound/AP documents can have an ERP posting decision."]})
+        if doc.ap_status in (AP_STATUS_LABELS["approved"], "Approved · posted to ERP", "Approved & Posted to ERP"):
+            raise ValidationError({"status": ["This document has already been selected for ERP posting."]})
+        reason = str(request.data.get("reason") or "").strip()
+        if not reason:
+            raise ValidationError({"reason": ["Please provide a reason for not posting this invoice to ERP."]})
+        doc.ap_status = AP_STATUS_LABELS["not_posted"]
+        extra_data = dict(doc.extra_data or {})
+        extra_data["erp_posting_decision"] = {"post_to_erp": False, "reason": reason}
+        doc.extra_data = extra_data
+        doc.save(update_fields=["ap_status", "extra_data"])
+        config_services.log(request, "AP_SKIP_ERP", entity="Document", entity_id=doc.invoice_number, reason=reason)
+        return Response(compat.to_compat(doc))
 
     @action(detail=True, methods=["post"])
     def reject(self, request, invoice_number=None):

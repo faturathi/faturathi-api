@@ -142,8 +142,24 @@ class DocumentArchitectureTests(TestCase):
         first = client.post(url, {}, format="json")
         second = client.post(url, {}, format="json")
         self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json()["apStatus"], "Approved · posted to ERP")
+        self.assertEqual(first.json()["apStatus"], "ERP posting requested")
         self.assertEqual(second.status_code, 200)
+
+    def test_skip_erp_records_decision_without_rejecting_document(self):
+        document = Document.objects.create(
+            company=self.company, created_by=self.user, direction="AP",
+            document_type="SELF_BILLED_389", invoice_number="AP-SKIP-1",
+            issue_date=date.today(), issue_time=time(10), counterparty_name="Supplier LLC",
+            status="REPORTED", ap_status="Pending Approver Review",
+        )
+        client = APIClient()
+        client.force_authenticate(self.user)
+        response = client.post(f"/api/invoices/{document.id}/skip_erp", {"reason": "Duplicate in ERP"}, format="json")
+        self.assertEqual(response.status_code, 200, response.json())
+        document.refresh_from_db()
+        self.assertEqual(document.status, "REPORTED")
+        self.assertEqual(document.ap_status, "Not Posted to ERP")
+        self.assertEqual(document.extra_data["erp_posting_decision"]["reason"], "Duplicate in ERP")
 
     def test_ap_approval_prefers_branch_erp_target_over_company_central_target(self):
         branch = CompanyBranch.objects.create(company=self.company, code="MCT-01", name="Muscat")
