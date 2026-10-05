@@ -86,16 +86,26 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "core.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "fathurathi"),
-        "USER": os.getenv("DB_USER", "fathurathi"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "fathurathi"),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+USE_DB =config('USE_DB')
+
+if USE_DB:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": "faturathi",
+        }
     }
-}
+else:  
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME", "fathurathi"),
+            "USER": os.getenv("DB_USER", "fathurathi"),
+            "PASSWORD": os.getenv("DB_PASSWORD", "fathurathi"),
+            "HOST": os.getenv("DB_HOST", "localhost"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

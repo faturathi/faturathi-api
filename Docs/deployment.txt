@@ -108,6 +108,7 @@ Confirm Python 3.12 or newer is installed (required by Django 6):
 
     python3 --version
 
+# Create User Faturathi : faturathi
 
 ===============================================================================
 5. DOWNLOAD AND INSTALL THE APPLICATION
